@@ -1,0 +1,1 @@
+﻿trial,frame_idx,t_ms,processed,n_dets,labels,dets_json,target_label,target_conf,target_cx,dist,ttc,level,level_name,direction,beep,vibrate_ms,tts,yolo_ms,depth_ms,target_box,motor,vib_count

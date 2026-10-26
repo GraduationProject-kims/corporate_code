@@ -1,0 +1,55 @@
+{
+  "trial": "RUNNER=yeonsoo",
+  "source": "live",
+  "video": null,
+  "frames": 178,
+  "processed": 178,
+  "frame_size": [
+    504,
+    896
+  ],
+  "video_fps": 1.74,
+  "duration_sec": 102.537,
+  "frames_with_det": 177,
+  "frames_with_target": 29,
+  "label_counts": {
+    "laptop": 191,
+    "person": 169,
+    "dining table": 22,
+    "wine glass": 21,
+    "cup": 21,
+    "chair": 118,
+    "tv": 21,
+    "keyboard": 12,
+    "bottle": 63,
+    "mouse": 44,
+    "dog": 4,
+    "sink": 1,
+    "toilet": 1,
+    "cell phone": 2,
+    "remote": 1,
+    "refrigerator": 4,
+    "handbag": 1
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 28.632,
+    "dist": 1.668,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 15.8,
+  "depth_ms_median": 428.4,
+  "server_ms_median": 456.6,
+  "wall_sec": 105.5,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 28.632,
+    "dist": 1.668,
+    "direction": "왼쪽",
+    "target_label": "bottle"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "trial": "1019_presentatioin_01",
+  "source": "live",
+  "video": null,
+  "frames": 299,
+  "processed": 299,
+  "frame_size": [
+    504,
+    896
+  ],
+  "video_fps": 3.73,
+  "duration_sec": 80.221,
+  "frames_with_det": 253,
+  "frames_with_target": 41,
+  "label_counts": {
+    "tv": 92,
+    "person": 208,
+    "chair": 87,
+    "dining table": 4,
+    "keyboard": 5,
+    "cell phone": 4,
+    "bottle": 69,
+    "remote": 1,
+    "laptop": 4,
+    "refrigerator": 10,
+    "train": 1,
+    "cat": 6,
+    "bird": 16,
+    "toilet": 2,
+    "dog": 1,
+    "banana": 2,
+    "sports ball": 1,
+    "apple": 3
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 44.203,
+    "dist": 2.074,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 15.0,
+  "depth_ms_median": 432.1,
+  "server_ms_median": 23.1,
+  "wall_sec": 947.46,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 44.203,
+    "dist": 2.074,
+    "direction": "왼쪽",
+    "target_label": "bottle"
+  }
+}

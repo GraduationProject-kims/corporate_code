@@ -1,0 +1,51 @@
+{
+  "trial": "1019_example_01",
+  "source": "live",
+  "video": null,
+  "frames": 916,
+  "processed": 916,
+  "frame_size": [
+    504,
+    896
+  ],
+  "video_fps": 5.03,
+  "duration_sec": 182.044,
+  "frames_with_det": 912,
+  "frames_with_target": 182,
+  "label_counts": {
+    "person": 1328,
+    "laptop": 1321,
+    "tv": 304,
+    "bottle": 355,
+    "keyboard": 7,
+    "chair": 229,
+    "cup": 51,
+    "clock": 23,
+    "donut": 1,
+    "cell phone": 11,
+    "microwave": 2,
+    "dining table": 4,
+    "refrigerator": 1
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 62.58,
+    "dist": 1.459,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 15.4,
+  "depth_ms_median": 432.6,
+  "server_ms_median": 25.2,
+  "wall_sec": 185.17,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 62.58,
+    "dist": 1.459,
+    "direction": "왼쪽",
+    "target_label": "bottle"
+  }
+}
