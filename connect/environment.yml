@@ -9,8 +9,8 @@ dependencies:
       - "uvicorn[standard]==0.34.0"
       - websockets==14.1
       - opencv-python==4.10.0.84
-      - ultralytics==8.3.55
+      - ultralytics>=8.4.104   # [10/30] YOLO26·YOLO26-depth는 8.4.104부터 (서버 맥은 이미 8.4.175)
       - numpy==1.26.4
-      - transformers==5.17.0
+      - transformers==5.17.0   # DEPTH_BACKEND=dav2(예전 Depth Anything)일 때만 필요
       - pillow==12.3.0
       - openvino==2024.6.0

@@ -14,6 +14,9 @@ judge.py — 장애물 경고 판정 (녹화 영상 run_model.py와 실시간 se
 [10/26 통합] 축소·YOLO 호출·depth 건너뛰기·장치 선택·모델 불러오기·방향 유지를 FramePipeline으로,
             run_meta/summary 만들기를 공통 함수로 옮김. 판정 규칙(계산 결과)은 바꾸지 않음
             RUN_FORMAT schema_version 2: video_source(live/file), server_ms_median 칸 추가
+[10/30 YOLO26] 탐지 yolo11n → yolo26s, depth Depth Anything V2 → YOLO26-depth (DEPTH_BACKEND).
+            판정 규칙·상수·기록 형식은 그대로. 바뀐 건 모델 불러오기(load_models)와 depth_map뿐
+            DEPTH_BACKEND=dav2 로 켜면 예전 모델로 똑같이 돌아감 (베이스라인 비교용)
 """
 
 import json
@@ -35,13 +38,31 @@ HERE = os.path.dirname(os.path.abspath(__file__))   # 모델 파일·runs 폴더
 
 # ===== 설정 (run_model.py에서 옮김) =====
 FRAME_WIDTH = 640      # 프레임 축소 폭 (저장 좌표는 원본 픽셀로 되돌림)
-MODEL_PATH = "yolo11n.pt"   # 2-4
+# [10/30 YOLO26] 탐지 모델 yolo11n → yolo26s (ultralytics 8.4.104 이상 필요, 처음 실행 때 자동 다운로드)
+#   한 번만 바꿔 볼 때: YOLO_MODEL=yolo26n.pt python run_model.py ...  (예전 것: YOLO_MODEL=yolo11n.pt)
+MODEL_PATH = os.environ.get("YOLO_MODEL", "yolo26s.pt")   # 2-4
 CONF_THRES = 0.4
 IMG_SIZE = 416         # YOLO imgsz (프레임 축소 폭 640과 별개)
 USE_DEPTH = True
-DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"     # 실내
-# DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf"  # 실외
-DEPTH_SCALE = 1.0      # 거리 보정 계수: 모델 출력에 곱함 (예: 실제 2m인데 4m로 나오면 0.5)
+
+# [10/30 YOLO26] depth 모델: Depth Anything V2 → YOLO26-depth (미터 단위 거리, ultralytics 안에서 바로 돌아감)
+#   DEPTH_BACKEND "yolo26"(기본) / "dav2"(예전 Depth Anything V2, 비교·베이스라인 재현용)
+#   한 번만 바꿔 볼 때: DEPTH_BACKEND=dav2 python run_model.py ...  /  DEPTH_MODEL=yolo26s-depth.pt ...
+DEPTH_BACKEND = os.environ.get("DEPTH_BACKEND", "yolo26")
+DEPTH_MODELS = {
+    "yolo26": "yolo26n-depth.pt",                                        # n/s/m/l/x. 클수록 정확·느림
+    "dav2": "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf",   # 실내 (실외: ...-Outdoor-Small-hf)
+}
+if DEPTH_BACKEND not in DEPTH_MODELS:
+    raise SystemExit(f"DEPTH_BACKEND는 {list(DEPTH_MODELS)} 중 하나여야 해요 (지금: {DEPTH_BACKEND})")
+DEPTH_MODEL = os.environ.get("DEPTH_MODEL", DEPTH_MODELS[DEPTH_BACKEND])
+# YOLO26-depth 입력 크기. 공개 가중치는 768로 학습됨 → 768이 가장 정확. 줄이면 빨라지지만 거리 오차가 커질 수 있음
+#   (32의 배수. 바꿔 볼 때: DEPTH_IMG_SIZE=640 ...)  dav2에는 안 쓰임 (dav2는 518 고정)
+DEPTH_IMG_SIZE = int(os.environ.get("DEPTH_IMG_SIZE", 768))
+# 맥 전용: 1이면 YOLO26-depth를 CoreML(.mlpackage)로 바꿔서 Neural Engine으로 돌림 (처음 한 번 변환에 1~2분)
+#   PyTorch(mps)와 소수점 결과가 조금 다를 수 있음 → run_meta.json에 기록됨
+DEPTH_COREML = os.environ.get("DEPTH_COREML") == "1"
+DEPTH_SCALE = 1.0      # 거리 보정 계수: 모델 출력에 곱함 (예: 실제 2m인데 4m로 나오면 0.5). 모델 바꾸면 다시 잴 것
 
 # ===== 실행 환경 (녹화·실시간 공통) =====
 DEVICE = "auto"        # 연산 장치: "auto"(cuda → mps → cpu 순서로 자동) / "cuda" / "mps" / "cpu". 장치가 다르면 소수점 끝자리가 다를 수 있음
@@ -102,11 +123,38 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": ZONE_MOD
 
 
 # ----- 4.1 Depth 거리 지도 -----
+class Yolo26Depth:
+    """YOLO26-depth. 프레임(BGR) → 거리 지도 (m, float32). ultralytics가 BGR numpy를 바로 받음"""
+
+    def __init__(self, model, device, using_coreml=False):
+        self.model = model
+        self.kwargs = dict(imgsz=DEPTH_IMG_SIZE, verbose=False)
+        if not using_coreml:   # CoreML은 장치를 스스로 고름
+            self.kwargs["device"] = {"cuda": 0, "mps": "mps", "cpu": "cpu"}[device]
+
+    def __call__(self, frame):
+        r = self.model.predict(frame, **self.kwargs)[0]
+        return r.depth.data.squeeze().float().cpu().numpy()
+
+
+class DAV2Depth:
+    """예전 Depth Anything V2 (transformers pipeline). 프레임(BGR) → 거리 지도 (m)"""
+
+    def __init__(self, pipe):
+        self.pipe = pipe
+
+    def __call__(self, frame):
+        out = self.pipe(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        return out["predicted_depth"].squeeze().float().cpu().numpy()
+
+
 def depth_map(frame, W, H, depth_pipe):
-    """모델 출력 → 프레임 크기로 resize → DEPTH_SCALE 곱하기. 결과 shape (H, W), 단위 m"""
-    out = depth_pipe(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
-    d = out["predicted_depth"].squeeze().cpu().numpy()
-    return cv2.resize(d, (W, H)) * DEPTH_SCALE
+    """모델 출력 → 프레임 크기로 resize → DEPTH_SCALE 곱하기. 결과 shape (H, W), 단위 m
+    depth_pipe: Yolo26Depth 또는 DAV2Depth (load_models가 DEPTH_BACKEND에 맞춰 만듦)"""
+    d = depth_pipe(frame).astype(np.float32)
+    if d.shape != (H, W):
+        d = cv2.resize(d, (W, H))
+    return d * DEPTH_SCALE
 
 
 # ----- 4.2 YOLO 박스 거리 -----
@@ -419,17 +467,39 @@ def load_models(device, use_openvino=False, depth_optional=False):
         yolo = YOLO(model_path)
     depth_pipe = None
     if USE_DEPTH:
-        print(f"Depth 로딩 중... ({DEPTH_MODEL}, 처음엔 다운로드로 1~2분 걸릴 수 있어요)")
+        print(f"Depth 로딩 중... ({DEPTH_BACKEND}: {DEPTH_MODEL}, 처음엔 다운로드로 1~2분 걸릴 수 있어요)")
         try:
-            from transformers import pipeline
-            # transformers 장치 표기: cuda → 0, 맥 → "mps", cpu → -1
-            depth_pipe = pipeline("depth-estimation", model=DEPTH_MODEL,
-                                  device={"cuda": 0, "mps": "mps", "cpu": -1}[device])
+            depth_pipe = _load_depth(device)
         except Exception as e:
             if not depth_optional:
                 raise
             print(f"Depth 로드 실패 ({e}) -> depth 없이 진행")
     return yolo, depth_pipe, using_openvino
+
+
+_depth_runtime = {"coreml": False}   # pipeline_info에 남길 실제 실행 방식
+
+
+def _load_depth(device):
+    if DEPTH_BACKEND == "dav2":
+        from transformers import pipeline
+        # transformers 장치 표기: cuda → 0, 맥 → "mps", cpu → -1
+        return DAV2Depth(pipeline("depth-estimation", model=DEPTH_MODEL,
+                                  device={"cuda": 0, "mps": "mps", "cpu": -1}[device]))
+    from ultralytics import YOLO
+    path = DEPTH_MODEL if os.path.isabs(DEPTH_MODEL) else os.path.join(HERE, DEPTH_MODEL)
+    if DEPTH_COREML:
+        ml_path = path.replace(".pt", f"_{DEPTH_IMG_SIZE}.mlpackage")
+        try:
+            if not os.path.exists(ml_path):
+                print(f"CoreML 변환 중... (imgsz {DEPTH_IMG_SIZE}, 처음 한 번만)")
+                out = YOLO(path).export(format="coreml", imgsz=DEPTH_IMG_SIZE, half=True)
+                os.replace(out, ml_path)
+            _depth_runtime["coreml"] = True
+            return Yolo26Depth(YOLO(ml_path, task="depth"), device, using_coreml=True)
+        except Exception as e:
+            print(f"CoreML 실패 ({e}) -> PyTorch({device})로 진행")
+    return Yolo26Depth(YOLO(path), device)
 
 
 # ===== 프레임 한 장 처리 (녹화·실시간 공통) =====
@@ -524,7 +594,9 @@ def git_commit():
 
 def pipeline_info(device, depth_every_n, using_openvino=False):
     """run_meta.json의 pipeline: 결과에 영향을 주는 실행 환경"""
-    info = {"device": device, "yolo_weights": MODEL_PATH, "depth_model": DEPTH_MODEL,
+    info = {"device": device, "yolo_weights": MODEL_PATH, "depth_backend": DEPTH_BACKEND,
+            "depth_model": DEPTH_MODEL, "depth_imgsz": DEPTH_IMG_SIZE if DEPTH_BACKEND == "yolo26" else 518,
+            "depth_coreml": _depth_runtime["coreml"],
             "conf": CONF_THRES, "imgsz": IMG_SIZE, "depth_every_n": depth_every_n, "openvino": using_openvino}
     for name in ("torch", "ultralytics", "transformers"):
         try:

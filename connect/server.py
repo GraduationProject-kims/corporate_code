@@ -115,7 +115,15 @@ def inference_worker():
         h0, w0 = frame.shape[:2]   # 폰이 보낸 원본 크기 (폰 회신 좌표 기준)
 
         # [3-1조] 축소 → YOLO → depth → 판정 (judge.py — 녹화 영상 run_model.py와 같은 코드)
-        out = pipe.step(frame)
+        try:
+            out = pipe.step(frame)
+        except Exception as error:   # [10/30] 프레임 하나 에러로 처리 스레드가 죽어 폰 회신이 끊기지 않게
+            print(f"\n[처리 에러] {type(error).__name__}: {error} (이 프레임 건너뜀)")
+            if not _site_state.get("step_traced"):
+                _site_state["step_traced"] = True
+                import traceback
+                traceback.print_exc()
+            continue
         frame, W, H, sx, j = out["frame"], out["W"], out["H"], out["sx"], out["j"]
         yolo_ms, depth_ms_now = out["yolo_ms"], out["depth_ms"]
         depth_color = None

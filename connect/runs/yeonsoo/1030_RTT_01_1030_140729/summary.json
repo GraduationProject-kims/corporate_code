@@ -1,0 +1,45 @@
+{
+  "trial": "1030_RTT_01",
+  "video_source": "live",
+  "video": null,
+  "frames": 94,
+  "processed": 94,
+  "frame_size": [
+    360,
+    640
+  ],
+  "video_fps": 1.27,
+  "duration_sec": 73.969,
+  "frames_with_det": 89,
+  "frames_with_target": 4,
+  "label_counts": {
+    "person": 90,
+    "laptop": 117,
+    "bottle": 46,
+    "mouse": 7,
+    "tv": 20,
+    "chair": 2,
+    "cup": 1
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 68.85,
+    "dist": 2.727,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 14.2,
+  "depth_ms_median": 91.5,
+  "server_ms_median": 25.4,
+  "wall_sec": 117.35,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 68.85,
+    "dist": 2.727,
+    "direction": "왼쪽",
+    "target_label": "bottle"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "trial": "1019_bottle_02",
+  "video_source": "file",
+  "video": "1019_bottle_02.mp4",
+  "frames": 227,
+  "processed": 227,
+  "frame_size": [
+    1080,
+    1442
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 7.567,
+  "frames_with_det": 215,
+  "frames_with_target": 104,
+  "label_counts": {
+    "chair": 622,
+    "tv": 25,
+    "refrigerator": 2,
+    "dining table": 145,
+    "person": 4,
+    "airplane": 1,
+    "bottle": 23,
+    "cup": 5,
+    "couch": 1
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 1.1,
+    "dist": 2.841,
+    "direction": "오른쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 13.3,
+  "depth_ms_median": 241.1,
+  "server_ms_median": null,
+  "wall_sec": 30.09,
+  "expected_dir": null,
+  "gt_2m_sec": 4.2,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 1.1,
+    "dist": 2.841,
+    "direction": "오른쪽",
+    "target_label": "DEPTH"
+  }
+}

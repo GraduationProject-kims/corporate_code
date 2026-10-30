@@ -1,0 +1,34 @@
+{
+  "trial": "1030_RTT_02",
+  "video_source": "live",
+  "video": null,
+  "frames": 95,
+  "processed": 95,
+  "frame_size": [
+    360,
+    640
+  ],
+  "video_fps": 2.75,
+  "duration_sec": 34.563,
+  "frames_with_det": 74,
+  "frames_with_target": 0,
+  "label_counts": {
+    "laptop": 128,
+    "person": 94,
+    "keyboard": 44,
+    "tv": 11,
+    "bottle": 10
+  },
+  "first_level1": null,
+  "first_level2": null,
+  "first_level3": null,
+  "max_level": 0,
+  "yolo_ms_median": 14.4,
+  "depth_ms_median": 92.1,
+  "server_ms_median": 26.2,
+  "wall_sec": 73.76,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": null
+}

@@ -1,0 +1,40 @@
+{
+  "trial": "1019_bottle_01",
+  "video_source": "file",
+  "video": "1019_bottle_01.mp4",
+  "frames": 88,
+  "processed": 88,
+  "frame_size": [
+    1080,
+    1432
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 10.433,
+  "frames_with_det": 88,
+  "frames_with_target": 54,
+  "label_counts": {
+    "chair": 205,
+    "tv": 35
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 1.1,
+    "dist": 2.95,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 15.6,
+  "depth_ms_median": 251.1,
+  "server_ms_median": null,
+  "wall_sec": 28.41,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 1.1,
+    "dist": 2.95,
+    "direction": "정면",
+    "target_label": "DEPTH"
+  }
+}
