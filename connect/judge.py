@@ -1,19 +1,37 @@
 """
-judge.py — 장애물 경고 판정 (녹화 영상 run_model.py와 실시간 live_server.py가 함께 쓰는 코드)
+judge.py — 장애물 경고 판정 (녹화 영상 run_model.py와 실시간 server.py가 함께 쓰는 코드)
 
-run_model.py(연수 코드, 명세 4.1~4.11)의 설정값과 판정·표시·기록 함수를 그대로 옮긴 것.
-판정 규칙을 바꿀 땐 이 파일만 고치면 녹화 평가와 실시간이 같이 바뀜.
-옮기면서 바꾼 것은 두 가지뿐:
-  1) depth_map()이 depth 모델을 인자로 받음 (원래는 전역 변수)
-  2) 한 프레임 판정 순서(원래 main 루프의 4.2~4.11)를 judge_frame() 하나로 묶음
+녹화 영상으로 오차를 보고 고칠 곳은 이 파일 하나뿐.
+  고친 뒤: run_model.py로 같은 영상을 다시 돌려 확인 → 커밋 → (서버 컴퓨터에서 받기) → 서버 재시작
+  run_model.py·server.py·live_record.py에는 판정·처리 순서가 없음 (입력 받기와 결과 내보내기만)
+
+이 파일에 있는 것
+  설정값            맨 위 (판정 규칙, 장치, depth 몇 프레임마다)
+  판정 함수         4.1 ~ 4.11 (원래 run_model.py에서 옮김), judge_frame()이 한 프레임 판정
+  FramePipeline     프레임 한 장 → 축소 → YOLO → depth → judge_frame (녹화·실시간이 같은 순서로 처리)
+  기록 공통 함수     run_meta.json, summary.json 만들기 (녹화·실시간이 같은 형식으로 저장)
+
+[10/26 통합] 축소·YOLO 호출·depth 건너뛰기·장치 선택·모델 불러오기·방향 유지를 FramePipeline으로,
+            run_meta/summary 만들기를 공통 함수로 옮김. 판정 규칙(계산 결과)은 바꾸지 않음
+            RUN_FORMAT schema_version 2: video_source(live/file), server_ms_median 칸 추가
 """
 
 import json
 import os
+import subprocess
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+
+# 맥(MPS)에서 지원 안 되는 연산은 CPU로 대신 계산 (torch를 불러오기 전에 설정해야 함)
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import cv2
 import numpy as np
 from PIL import Image
+
+HERE = os.path.dirname(os.path.abspath(__file__))   # 모델 파일·runs 폴더 기준 (실행 위치와 상관없이 같게)
 
 # ===== 설정 (run_model.py에서 옮김) =====
 FRAME_WIDTH = 640      # 프레임 축소 폭 (저장 좌표는 원본 픽셀로 되돌림)
@@ -24,6 +42,11 @@ USE_DEPTH = True
 DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"     # 실내
 # DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf"  # 실외
 DEPTH_SCALE = 1.0      # 거리 보정 계수: 모델 출력에 곱함 (예: 실제 2m인데 4m로 나오면 0.5)
+
+# ===== 실행 환경 (녹화·실시간 공통) =====
+DEVICE = "auto"        # 연산 장치: "auto"(cuda → mps → cpu 순서로 자동) / "cuda" / "mps" / "cpu". 장치가 다르면 소수점 끝자리가 다를 수 있음
+DEPTH_EVERY_N = 1      # N프레임마다 depth 1번 (1 = 매 프레임). 결과가 달라지니 녹화·실시간 같은 값으로
+                       # 한 번만 바꿔 볼 때: run_model.py --depth_every_n 3 / 서버 DEPTH_EVERY_N=3 uvicorn ...
 
 # ===== 경로 영역 (2-1 A) =====
 PATH_WIDTH_M = 0.8     # 경로 폭(m): 몸 중심에서 좌우 0.4m
@@ -66,7 +89,7 @@ MOTOR_TEXT_SCALE = 1.6                # 화면의 "-> NECK" 글자 크기 (장�
 
 # ===== run 결과 저장 (4.9) =====
 RUNS_DIR = "runs"
-SCHEMA_VERSION = 1     # RUN_FORMAT과 맞춤
+SCHEMA_VERSION = 2     # RUN_FORMAT과 맞춤 (2: video_source, server_ms_median 추가)
 CSV_COLUMNS = [
     "trial", "frame_idx", "t_ms", "processed", "n_dets", "labels", "dets_json",
     "target_label", "target_conf", "target_cx", "dist", "ttc", "level", "level_name",
@@ -202,6 +225,12 @@ def draw_path(img, H, W, obs_m, obs_src, obs_warn, near_pt, motor=""):
         cv2.circle(img, near_pt, 6, color, 2)
 
 
+def depth_colormap(dm):
+    """depth 지도 → 보기용 컬러 화면 (밝을수록 멂)"""
+    dnorm = cv2.normalize(dm, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    return cv2.applyColorMap(dnorm, cv2.COLORMAP_INFERNO)
+
+
 # ----- 4.8 방향 칸 (dividebox.py에서 옮김) -----
 def zone_limits(W, mode=ZONE_MODE):
     """칸 경계 x좌표 2개. "screen"(2-5 A): 화면 전체 3등분 / "path"(B): PATH_ROI x 범위를 ZONE_PATH_SPLIT 비율로 나눔"""
@@ -327,6 +356,7 @@ def judge_frame(r, depth_m, W, H, held_dir):
 def alarm_constants():
     """run_meta.json에 남길 판정 설정값 (run_model.py write_meta와 같은 항목)"""
     return {
+        "FRAME_WIDTH": FRAME_WIDTH, "CONF_THRES": CONF_THRES, "USE_DEPTH": USE_DEPTH,
         "MODEL_PATH": MODEL_PATH, "IMG_SIZE": IMG_SIZE, "PATH_WIDTH_M": PATH_WIDTH_M,
         "HFOV_DEG": HFOV_DEG, "WARN_M": WARN_M, "PATH_Y": list(PATH_Y), "PATH_ROI": list(PATH_ROI),
         "BOX_SHRINK": BOX_SHRINK, "BOX_PERCENTILE": BOX_PERCENTILE, "NEAR_PERCENTILE": NEAR_PERCENTILE,
@@ -335,4 +365,229 @@ def alarm_constants():
         "ZONE_PATH_SPLIT": list(ZONE_PATH_SPLIT), "MOTOR_MAP": MOTOR_MAP, "VIB_COUNT": VIB_COUNT,
         "RUNS_DIR": RUNS_DIR, "SCHEMA_VERSION": SCHEMA_VERSION, "DEPTH_SCALE": DEPTH_SCALE, "choices": CHOICES,
         "TARGET_LABELS": sorted(TARGET_LABELS) if TARGET_LABELS else None,   # [3-1조] None = 깊이 기반(기본)
+    }
+
+
+# ===== 장치·모델 불러오기 (녹화·실시간 공통) =====
+def resolve_device(pref=DEVICE):
+    """설정값을 실제로 쓸 수 있는 장치 이름("cuda"/"mps"/"cpu")으로 바꿈 (원래 server.py에서 옮김)"""
+    import torch
+    has_cuda = torch.cuda.is_available()
+    has_mps = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
+    if pref == "auto":
+        if has_cuda:
+            return "cuda"
+        if has_mps:
+            return "mps"
+        return "cpu"
+    if pref == "cuda" and not has_cuda:
+        print("경고: CUDA를 쓸 수 없음 -> " + ("mps" if has_mps else "cpu") + "로 진행")
+        return "mps" if has_mps else "cpu"
+    if pref == "mps" and not has_mps:
+        print("경고: MPS를 쓸 수 없음 -> cpu로 진행")
+        return "cpu"
+    return pref
+
+
+def sync_device(device):
+    """GPU/MPS는 비동기로 돌아가므로, 시간을 잴 때는 계산이 끝날 때까지 기다림 (시간만 바뀌고 판정은 안 바뀜)"""
+    if device in ("cuda", "mps"):
+        import torch
+        (torch.cuda if device == "cuda" else torch.mps).synchronize()
+
+
+def load_models(device, use_openvino=False, depth_optional=False):
+    """YOLO와 depth 모델을 불러옴 → (yolo, depth_pipe, using_openvino)
+    모델 파일은 judge.py가 있는 폴더 기준 (어디서 실행해도 같은 파일). fuse()는 하지 않음
+    use_openvino: Intel CPU 전용 가속, device가 cpu일 때만 씀 (결과가 조금 다를 수 있어 run_meta.json에 기록됨)
+    depth_optional: True면 depth 모델을 못 불러와도 depth 없이 진행 (실시간 서버), False면 오류로 멈춤 (녹화 평가)"""
+    from ultralytics import YOLO
+    model_path = os.path.join(HERE, MODEL_PATH)
+    yolo, using_openvino = None, False
+    if use_openvino and device == "cpu":
+        ov_dir = model_path.replace(".pt", "_openvino_model")
+        try:
+            if not os.path.isdir(ov_dir):
+                print("OpenVINO 변환 중...")
+                YOLO(model_path).export(format="openvino", imgsz=IMG_SIZE)
+            yolo = YOLO(ov_dir, task="detect")
+            using_openvino = True
+        except Exception as e:
+            print(f"OpenVINO 실패 ({e}) -> 일반 모델로 진행")
+    if yolo is None:
+        print(f"YOLO 로딩 중... ({MODEL_PATH}, 처음엔 자동 다운로드)")
+        yolo = YOLO(model_path)
+    depth_pipe = None
+    if USE_DEPTH:
+        print(f"Depth 로딩 중... ({DEPTH_MODEL}, 처음엔 다운로드로 1~2분 걸릴 수 있어요)")
+        try:
+            from transformers import pipeline
+            # transformers 장치 표기: cuda → 0, 맥 → "mps", cpu → -1
+            depth_pipe = pipeline("depth-estimation", model=DEPTH_MODEL,
+                                  device={"cuda": 0, "mps": "mps", "cpu": -1}[device])
+        except Exception as e:
+            if not depth_optional:
+                raise
+            print(f"Depth 로드 실패 ({e}) -> depth 없이 진행")
+    return yolo, depth_pipe, using_openvino
+
+
+# ===== 프레임 한 장 처리 (녹화·실시간 공통) =====
+class FramePipeline:
+    """프레임 한 장 → 판정. 녹화(run_model.py)와 실시간(server.py)이 이 순서 그대로 처리함
+      폭 FRAME_WIDTH로 축소 → YOLO → depth (depth_every_n 프레임마다, 나머지는 직전 depth) → judge_frame
+    프레임 번호와 경고 방향 유지(held_dir)도 여기서만 관리함
+    reset(): 처음 상태로 (영상을 처음부터 트는 것과 같음). 실시간 시행을 시작할 때 부름"""
+
+    def __init__(self, yolo, depth_pipe, device, depth_every_n=DEPTH_EVERY_N, using_openvino=False,
+                 keep_going_on_depth_error=False):
+        self.yolo, self.depth_pipe, self.device = yolo, depth_pipe, device
+        self.depth_every_n = max(1, int(depth_every_n))
+        self.keep_going_on_depth_error = keep_going_on_depth_error   # True(서버): depth 오류면 직전 depth로 계속
+        self.predict_kwargs = dict(imgsz=IMG_SIZE, conf=CONF_THRES, verbose=False)
+        if not using_openvino:
+            # ultralytics 장치 표기: cuda → 0, 맥 → "mps", cpu → "cpu"
+            self.predict_kwargs["device"] = {"cuda": 0, "mps": "mps", "cpu": "cpu"}[device]
+        self._lock = threading.Lock()   # 서버에서 처리 중에 reset()이 끼어들지 않게
+        self.epoch = 0                  # reset()할 때마다 1씩 늘어남 (어느 시행 상태로 처리한 프레임인지 구분)
+        self._reset()
+
+    def _reset(self):
+        self.frame_idx = 0
+        self.held_dir = None
+        self.depth_m = None
+        self.epoch += 1
+
+    def reset(self):
+        """프레임 번호 0, 방향 기억 없음, depth 없음으로 되돌림. 새 epoch 번호를 돌려줌"""
+        with self._lock:
+            self._reset()
+            return self.epoch
+
+    def step(self, frame):
+        """원본 프레임(BGR) → 결과 dict
+        idx: 이 프레임 번호 (reset 뒤 0부터), frame/W/H: 축소한 화면, sx: 원본 폭 / 축소 폭,
+        r: YOLO 결과, depth_m: 이번에 쓴 depth 지도, yolo_ms, depth_ms(이번에 depth를 안 돌렸으면 None), j: judge_frame 결과"""
+        with self._lock:
+            h, w = frame.shape[:2]
+            if w > FRAME_WIDTH:
+                frame = cv2.resize(frame, (FRAME_WIDTH, int(h * FRAME_WIDTH / w)))
+            H, W = frame.shape[:2]
+            idx = self.frame_idx
+
+            t0 = time.time()
+            r = self.yolo.predict(frame, **self.predict_kwargs)[0]
+            sync_device(self.device)
+            yolo_ms = (time.time() - t0) * 1000
+
+            # 4.1 Depth: N프레임마다 새로 계산, 나머지는 직전 depth
+            depth_ms = None
+            if self.depth_pipe is not None and idx % self.depth_every_n == 0:
+                t1 = time.time()
+                try:
+                    self.depth_m = depth_map(frame, W, H, self.depth_pipe)
+                    sync_device(self.device)
+                    depth_ms = (time.time() - t1) * 1000
+                except Exception as e:
+                    if not self.keep_going_on_depth_error:
+                        raise
+                    print(f"\ndepth 에러: {e} (직전 depth로 판정)")
+            self.frame_idx += 1
+
+            # 4.2 ~ 4.11 판정
+            j, self.held_dir = judge_frame(r, self.depth_m, W, H, self.held_dir)
+            return dict(idx=idx, epoch=self.epoch, frame=frame, W=W, H=H, orig_wh=(w, h), sx=w / W,
+                        r=r, depth_m=self.depth_m, yolo_ms=yolo_ms, depth_ms=depth_ms, j=j)
+
+
+# ===== run 결과 저장 공통 (녹화 run_model.py·실시간 live_record.py가 같은 형식으로) =====
+def make_run_dir(runner, trial, started=None):
+    """runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/ 를 새로 만듦 (있으면 덮어쓰지 않고 오류)"""
+    started = started or datetime.now()
+    run_dir = Path(HERE) / RUNS_DIR / runner / f"{trial}_{started:%m%d_%H%M%S}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def write_json(path, data):
+    with open(path, "x", encoding="utf-8") as f:   # "x": 이미 있으면 덮어쓰지 않음
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def git_commit():
+    try:
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=HERE, capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def pipeline_info(device, depth_every_n, using_openvino=False):
+    """run_meta.json의 pipeline: 결과에 영향을 주는 실행 환경"""
+    info = {"device": device, "yolo_weights": MODEL_PATH, "depth_model": DEPTH_MODEL,
+            "conf": CONF_THRES, "imgsz": IMG_SIZE, "depth_every_n": depth_every_n, "openvino": using_openvino}
+    for name in ("torch", "ultralytics", "transformers"):
+        try:
+            info[name] = __import__(name).__version__
+        except Exception:
+            pass
+    info["opencv"] = cv2.__version__
+    return info
+
+
+def run_meta(video_source, args, pipeline, runner, video_file, run_at=None):
+    """run_meta.json 내용. video_source: "file"(녹화 영상) / "live"(실시간)"""
+    return {
+        "run_at": (run_at or datetime.now()).isoformat(timespec="seconds"),
+        "video_source": video_source,
+        "args": args,
+        "pipeline": pipeline,
+        "alarm_constants": alarm_constants(),
+        "runner": runner,
+        "git_commit": git_commit(),
+        "video_file": video_file,
+        "schema_version": SCHEMA_VERSION,
+    }
+
+
+def summary(rows, trial, video_source, video, frame_size, video_fps, duration_sec, wall_sec,
+            expected_dir=None, gt_2m_sec=None, note=None, server_ms=None):
+    """summary.json 내용 (frames.csv 줄 rows에서 다시 셀 수 있는 값만)
+    server_ms: 실시간이면 프레임별 서버 처리 시간 목록, 녹화면 None → server_ms_median null"""
+    done = [r for r in rows if r["processed"] == 1]
+    label_counts = {}
+    for r in done:
+        for label in filter(None, r["labels"].split(";")):
+            label_counts[label] = label_counts.get(label, 0) + 1
+    first2 = next((r for r in done if r["level"] == 2), None)
+    first_vib = next((r for r in rows if r["motor"] != ""), None)   # 4.11
+    t_sec = lambda r: r["t_ms"] / 1000 if r["t_ms"] != "" else None
+    med = lambda v: round(float(np.median(v)), 1) if v else None
+    return {
+        "trial": trial,
+        "video_source": video_source,
+        "video": video,
+        "frames": len(rows),
+        "processed": len(done),
+        "frame_size": frame_size,
+        "video_fps": video_fps,
+        "duration_sec": duration_sec,
+        "frames_with_det": sum(1 for r in done if r["n_dets"] > 0),
+        "frames_with_target": sum(1 for r in done if r["level"] == 2),
+        "label_counts": label_counts,
+        "first_level1": None,
+        "first_level2": None if first2 is None else {
+            "t_sec": t_sec(first2), "dist": first2["dist"], "direction": first2["direction"] or None},
+        "first_level3": None,
+        "max_level": max((r["level"] for r in done), default=0),
+        "yolo_ms_median": med([r["yolo_ms"] for r in done]),
+        "depth_ms_median": med([r["depth_ms"] for r in done if r["depth_ms"] != ""]),
+        "server_ms_median": None if server_ms is None else med(server_ms),
+        "wall_sec": round(wall_sec, 2),
+        "expected_dir": expected_dir,
+        "gt_2m_sec": gt_2m_sec,
+        "note": note,
+        "first_vibration": None if first_vib is None else {
+            "t_sec": t_sec(first_vib), "dist": first_vib["dist"],
+            "direction": first_vib["direction"] or None, "target_label": first_vib["target_label"]},
     }

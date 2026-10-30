@@ -13,10 +13,16 @@ Metric Depth 모델: 절대 거리(미터) 추정.
 [3-1조 수정 10/16] 판정을 judge.py로 (녹화 영상 run_model.py와 같은 코드)
   - 박스 거리·경로 장애물·경고·방향·모터를 judge.py로 계산 (경로 depth < 3 m면 경고)
   - 폰 회신 형식은 그대로 + "judge" 항목 추가 (dets는 맨 끝 유지) → 앱 수정 불필요
-  - 모델 설정값(MODEL_PATH, CONF, IMG_SIZE, DEPTH_MODEL)은 judge.py 한 곳에서
-  - 장치 자동 선택(DEVICE), 시연 사이트 전송(live_mirror)은 원래 맥북 버전 그대로 유지
+  - 시연 사이트 전송(live_mirror)은 원래 맥북 버전 그대로 유지
   - 시행 기록: 서버 터미널에 시행ID 입력 + Enter → 시작, 그냥 Enter → 끝 (live_record.py)
     실행할 때 이름 지정: RUNNER=내이름 uvicorn server:app --host 0.0.0.0 --port 8001
+
+[3-1조 수정 10/26] 처리 순서도 judge.py로 (녹화 영상 run_model.py와 완전히 같은 코드)
+  - 축소 → YOLO → depth(N프레임마다) → 판정 → 방향 유지는 judge.FramePipeline.step() 한 줄
+  - 장치 자동 선택(DEVICE), 모델 불러오기, depth 몇 프레임마다(DEPTH_EVERY_N) 기본값도 judge.py
+  - 시행 기록을 시작하면 판정 상태를 처음으로 되돌림 (녹화 영상을 처음부터 트는 것과 같게)
+  - 이 파일에는 폰 사진 받기·풀기, 폰 회신, 사이트 전송, 화면 창만 남음
+  - 오차를 고칠 땐 이 파일이 아니라 judge.py를 고치고 서버를 다시 켤 것
 """
 
 import asyncio
@@ -35,65 +41,22 @@ import torch
 from live_mirror import LiveMirror
 live_mirror = LiveMirror(wait_for_phone=False)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from ultralytics import YOLO
 
-import judge          # [3-1조] 판정 (녹화 영상 평가와 같은 코드)
+import judge          # [3-1조] 처리·판정 (녹화 영상 평가와 같은 코드). 모델·판정 설정값도 여기
 import live_record    # [3-1조] 시행 기록
 
-# 설정 — 모델·판정 값은 judge.py 한 곳에서 (녹화 영상 run_model.py와 같은 값)
-MODEL_PATH = judge.MODEL_PATH        # 모델 교체(README 11-1): judge.py의 MODEL_PATH를 바꿀 것
-CONF_THRES = judge.CONF_THRES
-IMG_SIZE = judge.IMG_SIZE
+# 설정 — 서버에서만 쓰는 값 (판정에는 영향 없음)
 SHOW_WINDOW = True
 SITE_JUDGE = os.environ.get("SITE_JUDGE") == "1"   # [3-1조] 1이면 사이트에도 판정(경고·방향·모터·거리)을 record 칸으로 보냄 (기본: 원래 형식 그대로)
 _site_state = {"sent": False, "traced": False}
 TORCH_THREADS = 4
-USE_OPENVINO = False          # Intel CPU 전용 가속. DEVICE가 cpu일 때만 쓰임 (맥 M1에서는 안 씀)
-# 연산 장치: "auto" / "cuda" / "mps" / "cpu"
-#   auto = NVIDIA GPU(cuda) → 맥 Apple Silicon(mps) → cpu 순서로 자동 선택
-#   윈도우 GPU 서버와 맥북 모두 코드를 고치지 않고 그대로 돌릴 수 있음
-DEVICE = "auto"
+USE_OPENVINO = False          # Intel CPU 전용 가속. 장치가 cpu일 때만 쓰임 (맥 M1에서는 안 씀). 켜면 결과가 조금 다를 수 있음
+# [3-1조] N프레임마다 depth 1번. 기본값은 judge.py의 DEPTH_EVERY_N
+#   한 번만 바꿔 볼 때: DEPTH_EVERY_N=3 uvicorn server:app ... (녹화 평가 run_model.py --depth_every_n과 같은 값이어야 결과가 같음)
+DEPTH_EVERY_N = max(1, int(os.environ.get("DEPTH_EVERY_N", judge.DEPTH_EVERY_N)))
 
-# Depth (metric, 미터 단위)
-USE_DEPTH = judge.USE_DEPTH
-DEPTH_MODEL = judge.DEPTH_MODEL      # 모델 교체(README 11-2): judge.py의 DEPTH_MODEL을 바꿀 것
-# [3-1조] N프레임마다 depth 1번. 실행할 때 DEPTH_EVERY_N=3 처럼 주면 코드를 안 고치고 바꿀 수 있음 (기본 1 = 매 프레임)
-#   depth가 제일 느려서 N을 키우면 fps가 올라감. 대신 건너뛴 프레임은 직전 depth로 판정
-#   녹화 평가(run_model.py --depth_every_n)와 같은 값이어야 결과가 같음
-DEPTH_EVERY_N = max(1, int(os.environ.get("DEPTH_EVERY_N", "1")))
-
-
-def resolve_device(pref):
-    """설정값을 실제로 쓸 수 있는 장치 이름("cuda"/"mps"/"cpu")으로 바꾼다."""
-    has_cuda = torch.cuda.is_available()
-    has_mps = getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available()
-    if pref == "auto":
-        if has_cuda:
-            return "cuda"
-        if has_mps:
-            return "mps"
-        return "cpu"
-    if pref == "cuda" and not has_cuda:
-        print("경고: CUDA를 쓸 수 없음 -> " + ("mps" if has_mps else "cpu") + "로 진행")
-        return "mps" if has_mps else "cpu"
-    if pref == "mps" and not has_mps:
-        print("경고: MPS를 쓸 수 없음 -> cpu로 진행")
-        return "cpu"
-    return pref
-
-
-DEVICE = resolve_device(DEVICE)
-if DEVICE != "cpu":
-    USE_OPENVINO = False
-
-
-def sync_device():
-    """GPU/MPS는 비동기로 돌아가므로, 시간을 잴 때는 계산이 끝날 때까지 기다린다."""
-    if DEVICE == "cuda":
-        torch.cuda.synchronize()
-    elif DEVICE == "mps":
-        torch.mps.synchronize()
-
+# 연산 장치: judge.py의 DEVICE ("auto" = NVIDIA GPU(cuda) → 맥 Apple Silicon(mps) → cpu)
+DEVICE = judge.resolve_device(judge.DEVICE)
 
 torch.set_num_threads(TORCH_THREADS)
 cv2.setNumThreads(TORCH_THREADS)
@@ -101,41 +64,9 @@ cv2.setNumThreads(TORCH_THREADS)
 app = FastAPI()
 
 print(f"연산 장치: {DEVICE}")
-print("YOLO 모델 로딩 중...")
-model = None
-using_openvino = False
-
-if USE_OPENVINO:
-    ov_dir = MODEL_PATH.replace(".pt", "_openvino_model")
-    try:
-        if not os.path.isdir(ov_dir):
-            print("OpenVINO 변환 중...")
-            YOLO(MODEL_PATH).export(format="openvino", imgsz=IMG_SIZE)
-        model = YOLO(ov_dir, task="detect")
-        using_openvino = True
-    except Exception as e:
-        print(f"OpenVINO 실패 ({e}) -> CPU 폴백")
-
-if model is None:
-    model = YOLO(MODEL_PATH)   # [3-1조] run_model.py와 같게 fuse() 안 함
-
-_predict_kwargs = dict(imgsz=IMG_SIZE, conf=CONF_THRES, verbose=False)
-if not using_openvino:
-    # ultralytics 장치 표기: cuda → 0, 맥 → "mps", cpu → "cpu"
-    _predict_kwargs["device"] = {"cuda": 0, "mps": "mps", "cpu": "cpu"}[DEVICE]
-
-depth_pipe = None
-if USE_DEPTH:
-    print(f"Metric Depth 로딩 중... ({DEPTH_MODEL})")
-    try:
-        from transformers import pipeline as hf_pipeline
-        # transformers 장치 표기: cuda → 0, 맥 → "mps", cpu → -1
-        depth_device = {"cuda": 0, "mps": "mps", "cpu": -1}[DEVICE]
-        depth_pipe = hf_pipeline(task="depth-estimation", model=DEPTH_MODEL, device=depth_device)
-        print("Depth 모델 로드 완료.")
-    except Exception as e:
-        print(f"Depth 로드 실패 ({e}) -> depth 없이 진행")
-        depth_pipe = None
+model, depth_pipe, using_openvino = judge.load_models(DEVICE, use_openvino=USE_OPENVINO, depth_optional=True)
+pipe = judge.FramePipeline(model, depth_pipe, DEVICE, DEPTH_EVERY_N, using_openvino=using_openvino,
+                           keep_going_on_depth_error=True)
 
 print(f"모델 로드 완료 (device={DEVICE}, openvino={using_openvino}, depth={depth_pipe is not None}). "
       f"폰 연결 대기 중...")
@@ -152,25 +83,18 @@ latest_view = {"annotated": None}
 proc_times = deque(maxlen=30)
 
 
-def run_metric_depth(frame_bgr):
-    """BGR → metric depth(미터) 맵(numpy, HxW), 추론시간ms, 컬러맵
-    [3-1조] 거리 지도는 judge.depth_map (프레임 크기로 resize + DEPTH_SCALE 보정, run_model.py와 같음)"""
-    t0 = time.time()
-    depth_m = judge.depth_map(frame_bgr, frame_bgr.shape[1], frame_bgr.shape[0], depth_pipe)
-    sync_device()
-    depth_ms = (time.time() - t0) * 1000
-    # 시각화
-    dnorm = cv2.normalize(depth_m, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    depth_color = cv2.applyColorMap(dnorm, cv2.COLORMAP_INFERNO)
-    return depth_ms, depth_m, depth_color
+def on_trial_start():
+    """[3-1조] 시행 기록 시작 때 live_record가 부름: 기다리던 프레임은 버리고 판정 상태를 처음으로
+    (녹화 영상을 처음부터 트는 것과 같게 frame_idx 0, 방향 기억 없음, depth 새로 계산). 새 epoch 번호를 돌려줌"""
+    with _lock:
+        _latest["data"] = None
+    return pipe.reset()
 
 
 def inference_worker():
-    frame_idx = 0
+    sent_count = 0            # 서버를 켠 뒤 처리한 프레임 수 (사이트 전송 번호, 시행과 상관없이 계속 늘어남)
     last_depth_ms = 0.0
-    last_depth_m = None
     last_depth_color = None   # [3-1조] depth를 건너뛴 프레임에도 오른쪽 depth 화면을 유지 (사이트 화면 폭이 들쭉날쭉하지 않게)
-    held_dir = None   # [3-1조] 경고가 이어지는 동안 첫 방향 유지 (judge.HOLD_DIRECTION)
     while not _stop.is_set():
         with _lock:
             data = _latest["data"]
@@ -189,33 +113,16 @@ def inference_worker():
         if frame is None:
             continue
         h0, w0 = frame.shape[:2]   # 폰이 보낸 원본 크기 (폰 회신 좌표 기준)
-        # [3-1조] run_model.py와 같게 폭 FRAME_WIDTH(640)로 줄여서 추론·판정
-        if w0 > judge.FRAME_WIDTH:
-            frame = cv2.resize(frame, (judge.FRAME_WIDTH, int(h0 * judge.FRAME_WIDTH / w0)))
-        H, W = frame.shape[:2]
-        sx = w0 / W
 
-        # YOLO
-        i0 = time.time()
-        results = model.predict(frame, **_predict_kwargs)
-        sync_device()
-        yolo_ms = (time.time() - i0) * 1000
-        r = results[0]
-
-        # Metric Depth (run_model.py와 같은 순서: 번호 확인 후 증가)
+        # [3-1조] 축소 → YOLO → depth → 판정 (judge.py — 녹화 영상 run_model.py와 같은 코드)
+        out = pipe.step(frame)
+        frame, W, H, sx, j = out["frame"], out["W"], out["H"], out["sx"], out["j"]
+        yolo_ms, depth_ms_now = out["yolo_ms"], out["depth_ms"]
         depth_color = None
-        depth_ms_now = None
-        if depth_pipe is not None and frame_idx % DEPTH_EVERY_N == 0:
-            try:
-                last_depth_ms, last_depth_m, depth_color = run_metric_depth(frame)
-                depth_ms_now = last_depth_ms
-                last_depth_color = depth_color
-            except Exception as e:
-                print(f"\ndepth 에러: {e}")
-        frame_idx += 1
-
-        # [3-1조] 판정 (judge.py): 박스 거리 + 경로 장애물 → 경고·방향·모터
-        j, held_dir = judge.judge_frame(r, last_depth_m, W, H, held_dir)
+        if depth_ms_now is not None:
+            last_depth_ms = depth_ms_now
+            depth_color = last_depth_color = judge.depth_colormap(out["depth_m"])
+        sent_count += 1
 
         def dets_at(scale):   # scale=sx → 원본 좌표(폰), scale=1 → 줄인 화면 좌표(시연 사이트)
             return [{
@@ -256,7 +163,7 @@ def inference_worker():
             _pending_result["json"] = result_json
 
         # [3-1조] 시행 기록 중이면 frames.csv(run_model.py와 같은 형식) + latency.csv에 한 줄
-        live_record.add(recv_ms, (w0, h0), sx, j, yolo_ms, depth_ms_now, {
+        live_record.add(recv_ms, out, {
             "recv_to_start_ms": round(server_t0 * 1000 - recv_ms, 1), "decode_ms": round(decode_ms, 1),
             "yolo_ms": round(yolo_ms, 1), "depth_ms": "" if depth_ms_now is None else round(depth_ms_now, 1),
             "server_ms": round(server_ms, 1)})
@@ -294,13 +201,13 @@ def inference_worker():
         judge_row = None
         if SITE_JUDGE:
             # [3-1조] frames.csv 한 줄과 같은 함수·같은 값으로 만들어 사이트 record에 넣음 (좌표는 원본 픽셀)
-            judge_row = judge.frame_row("", frame_idx, 0, sx, j["box_results"],
+            judge_row = judge.frame_row("", out["idx"], 0, sx, j["box_results"],
                                         (j["obs_m"], j["obs_src"], j["obs_warn"], j["obs_target"]),
                                         j["direction"], (j["motor"], j["vib_count"]), yolo_ms, depth_ms_now)
         else:
             site_data.pop("judge", None)
         try:
-            live_mirror.remember_bgr(site_img, site_data, frame_idx, judge_row)
+            live_mirror.remember_bgr(site_img, site_data, sent_count, judge_row)
             if not _site_state["sent"]:
                 _site_state["sent"] = True
                 print(f"\n[사이트] 첫 프레임 넘김 (이미지 {site_img.shape[1]}x{site_img.shape[0]}, "
@@ -348,7 +255,10 @@ async def viewer():
 @app.on_event("startup")
 async def on_startup():
     threading.Thread(target=inference_worker, daemon=True).start()
-    live_record.start_console(meta_extra={"device": DEVICE, "depth_every_n": DEPTH_EVERY_N})   # [3-1조] 시행 기록
+    # [3-1조] 시행 기록: 시작할 때 on_trial_start로 판정 상태를 처음으로
+    live_record.start_console(args={"device": DEVICE, "depth_every_n": DEPTH_EVERY_N},
+                              pipeline=judge.pipeline_info(DEVICE, DEPTH_EVERY_N, using_openvino),
+                              on_start=on_trial_start)
     asyncio.create_task(viewer())
 
 

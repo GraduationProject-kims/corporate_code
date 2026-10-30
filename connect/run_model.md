@@ -1,7 +1,7 @@
 # 장애물 경고 코드 명세 (짧은 버전)
 
-> 코드: `test_model3.py`  · 결과 형식: `RUN_FORMAT.md`
-> 결과를 맞추는 공식 방법은 **모두 같은 커밋의 `test_model3.py`를 같은 인자로 돌리는 것**이다. 이 문서만 보고 코드를 다시 짜도 같은 숫자가 나오도록, 계산 규칙(4장)은 반올림까지 빠짐없이 적었다.
+> 코드: `judge.py`(처리·판정·설정값) + `run_model.py`(녹화 영상) / `server.py`·`live_record.py`(실시간) · 결과 형식: `RUN_FORMAT.md`(이 문서 5장과 같음)
+> 결과를 맞추는 공식 방법은 **모두 같은 커밋의 `run_model.py`를 같은 인자로 돌리는 것**이다. 이 문서만 보고 코드를 다시 짜도 같은 숫자가 나오도록, 계산 규칙(4장)은 반올림까지 빠짐없이 적었다.
 
 ---
 
@@ -20,12 +20,26 @@
 - YOLO는 **박스 위치만** 쓴다. 클래스(사람·의자 등)는 화면 표시와 기록에만 쓰고 판정에는 안 쓴다.
 - YOLO가 못 잡는 물체(A4 등)도 경로 안에 있으면 depth로 잡는다.
 
+### 녹화와 실시간이 같은 코드를 쓴다
+위 흐름(축소 → YOLO → depth → 판정 → 방향 유지)은 전부 `judge.py`의 `FramePipeline.step()` 안에 있다. 녹화 영상(`run_model.py`)과 실시간 서버(`server.py`)는 모두 이 함수 하나를 부르고, 각자 하는 일은 입력과 출력뿐이다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `judge.py` | 설정값, 처리 순서, 판정, 기록 형식 (**오차를 고치는 곳은 여기 하나**) |
+| `run_model.py` | 영상 파일 읽기, 화면 창, frames.csv 저장 |
+| `server.py` | 폰 사진 받기·풀기, 폰 회신, 시연 사이트 전송 |
+| `live_record.py` | 실시간 시행 기록 (판정 안 함) |
+
+녹화 영상으로 오차를 보고 `judge.py`를 고친 뒤: `run_model.py`로 다시 확인 → 커밋 → (서버 컴퓨터에서 받기) → **서버 재시작**. 켜져 있는 서버는 시작할 때 읽은 `judge.py`를 계속 쓴다.
+
+실시간 시행 기록을 시작하면(시행ID + Enter) 판정 상태가 처음으로 돌아간다(`FramePipeline.reset()`): `frame_idx` 0, 방향 기억 없음, depth 새로 계산. 그래서 같은 화면이 들어오면 실시간 frames.csv와 녹화 frames.csv의 판정 칸이 같다. 시작 전 상태로 판정한 프레임과 Enter 전에 받은 프레임은 기록하지 않는다.
+
 ---
 
 ## 2. 실행
 
 ```bash
-python test_model3.py --video 1011_front_01.mp4 --runner 연수
+python run_model.py --video 1011_front_01.mp4 --runner 연수
 ```
 
 | 인자 | 뜻 |
@@ -34,14 +48,17 @@ python test_model3.py --video 1011_front_01.mp4 --runner 연수
 | `--runner` | 돌린 사람 이름. 영상이면 필수 |
 | `--trial` | 시행ID. 없으면 영상 파일명에서 확장자를 뺀 것 |
 | `--expected_dir`, `--gt_2m_sec`, `--note` | 기록만 함. 계산에는 안 씀 |
-| `--depth_every_n` | N프레임마다 depth 1번 (기본 1). **결과가 달라지니 팀 전체가 같은 값을 쓴다** |
+| `--depth_every_n` | N프레임마다 depth 1번 (기본: `judge.py`의 `DEPTH_EVERY_N` = 1). **결과가 달라지니 팀 전체가 같은 값을 쓴다**. 실시간 서버는 환경변수 `DEPTH_EVERY_N` |
 
 - 시행ID 형식은 `<MMDD>_<front|left|right|none>_<2자리>`이고, 영상 파일명과 같게 한다. 예: `1011_left_01.mp4`
 - 키 조작 (영상 창을 클릭해 둔 상태): `space` 일시정지, `q` 종료, 마우스 클릭 → 그 점의 거리
+- 실시간 서버: `RUNNER=연수 uvicorn server:app --host 0.0.0.0 --port 8001`, 서버 터미널에 시행ID + Enter로 기록 시작, 그냥 Enter로 끝
 
 ---
 
-## 3. 설정값 (코드 맨 위)
+## 3. 설정값 (`judge.py` 맨 위)
+
+`run_model.py`·`server.py`에서 이 값을 바꿔도 판정은 바뀌지 않는다. 반드시 `judge.py`에서 바꾼다.
 
 ```python
 FRAME_WIDTH = 640                     # 프레임 축소 폭
@@ -50,6 +67,8 @@ CONF_THRES = 0.4                      # YOLO 확률 하한
 IMG_SIZE = 416                        # YOLO imgsz
 DEPTH_MODEL = "depth-anything/Depth-Anything-V2-Metric-Indoor-Small-hf"
 DEPTH_SCALE = 1.0                     # depth 보정 배율
+DEVICE = "auto"                       # 연산 장치: cuda → mps → cpu 순서로 자동
+DEPTH_EVERY_N = 1                     # N프레임마다 depth 1번
 PATH_WIDTH_M = 0.8                    # 경로 폭 (기록용)
 HFOV_DEG = 70.0                       # 카메라 가로 화각 (기록용)
 WARN_M = 3                            # 이보다 가까우면 경고
@@ -68,7 +87,7 @@ MOTOR_MAP = {"왼쪽": "right", "오른쪽": "left", "정면": "neck"}
 VIB_COUNT = {1: 1, 2: 2}
 MOTOR_TEXT_SCALE = 1.6                # 화면 모터 글자 크기
 RUNS_DIR = "runs"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", "2-7": "B",
            "2-9": "B (PATH_ROI 다시 계산)", "2-10": "A (정면 → neck)", "2-11": "B", "2-12": "B"}
 ```
@@ -84,11 +103,12 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 ### 4-1. 프레임 준비
 - 원본 폭 `w`가 640보다 크면 `cv2.resize(frame, (640, int(h * 640 / w)))`(기본 보간). 아니면 그대로 쓴다.
 - `sx = w / W`: 저장할 때 원본 픽셀로 되돌리는 배율
-- YOLO: `yolo.predict(frame, imgsz=416, conf=0.4, device=DEVICE)`. 박스 좌표는 `int()`로 소수점을 버린다.
+- YOLO: `yolo.predict(frame, imgsz=416, conf=0.4, device=DEVICE)`. 박스 좌표는 `int()`로 소수점을 버린다. 모델 파일은 `judge.py`가 있는 폴더 기준이고 `fuse()`는 하지 않는다.
 - Depth: 축소 프레임을 RGB로 바꿔 pipeline에 넣고, `predicted_depth`를 `cv2.resize(d, (W, H))`(기본 보간)한 뒤 `DEPTH_SCALE`을 곱한다.
   - `frame_idx % depth_every_n == 0`인 프레임에서만 새로 계산하고, 나머지 프레임은 직전 depth를 쓴다.
   - 첫 depth가 나오기 전에는 거리가 없다. 박스 거리는 `None`이고 경고도 없다.
-- `DEVICE`는 mps가 있으면 mps, 없으면 cpu다. 장치가 다르면 소수점 끝자리가 다를 수 있다.
+- `DEVICE`는 `"auto"`: cuda가 있으면 cuda, 없으면 mps, 그것도 없으면 cpu다. 장치가 다르면 소수점 끝자리가 다를 수 있다.
+- 여기까지와 4-2 ~ 4-6은 모두 `judge.FramePipeline.step()` 안에서 이 순서로 한다 (녹화·실시간 같음).
 
 ### 4-2. YOLO 박스: 거리와 "경로 안" 판정
 - **거리**: 박스를 각 변에서 폭·높이의 20%씩 줄인 영역의 depth 하위 30% 백분위
@@ -136,7 +156,13 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 
 ---
 
-## 5. 저장 (영상 입력일 때만)
+## 5. 저장 (영상 입력, 또는 실시간 시행 기록 중일 때)
+
+> 이 장이 RUN_FORMAT이다 (schema_version 2). 팀에 따로 `RUN_FORMAT.md`가 있으면 아래 "버전 2에서 바뀐 것"을 거기에도 적는다.
+>
+> **버전 2에서 바뀐 것 (10/26)**: `video_source` 칸 추가 (run_meta.json, summary.json), `server_ms_median` 칸 추가 (summary.json). 실시간 기록에 있던 `source` 칸은 `video_source`로 바뀌었다. `alarm_constants`에 `FRAME_WIDTH`, `CONF_THRES`, `USE_DEPTH`, `pipeline`에 `depth_every_n`, `openvino`가 추가됐다. frames.csv는 그대로다.
+>
+> 녹화(`run_model.py`)와 실시간(`live_record.py`)은 `judge.py`의 같은 함수(`frame_row`, `run_meta`, `summary`)로 저장하므로 칸 이름과 순서가 같다. 실시간에는 `latency.csv`(구간별 지연)가 하나 더 있다.
 
 폴더는 `runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/`이다 (뒤의 날짜·시각은 돌린 시각). 폴더나 파일이 이미 있으면 오류가 나고 덮어쓰지 않는다. 표시 영상은 저장하지 않는다.
 
@@ -148,8 +174,8 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 | 칸 | 값 |
 |---|---|
 | `trial` | 시행ID |
-| `frame_idx` | 0부터 |
-| `t_ms` | `cap.read()` 직후 읽은 `CAP_PROP_POS_MSEC`를 `round(max(값, 0))`. 두 번째 프레임부터 값이 0 이하로 나오면 그 뒤로는 `round(frame_idx × 1000 / fps)`를 쓰고 터미널에 한 번 경고 |
+| `frame_idx` | 0부터 (실시간: 시행 시작 때 0으로 돌아감) |
+| `t_ms` | 녹화: `cap.read()` 직후 읽은 `CAP_PROP_POS_MSEC`를 `round(max(값, 0))`. 두 번째 프레임부터 값이 0 이하로 나오면 그 뒤로는 `round(frame_idx × 1000 / fps)`를 쓰고 터미널에 한 번 경고. 실시간: 시행 시작(Enter)부터 서버가 그 프레임을 받은 시각 |
 | `processed` | 1 |
 | `n_dets`, `labels` | 박스 수, 클래스 이름을 `;`로 이은 것 |
 | `dets_json` | `json.dumps([{"label", "conf", "box", "dist"}, ...], ensure_ascii=False)`. conf·dist는 소수 3자리(dist 없으면 null), box는 원본 픽셀 정수 `[round(x1·sx), …]` |
@@ -169,9 +195,11 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 
 | 칸 | 값 |
 |---|---|
-| `trial`, `video` | 시행ID, 영상 파일명 |
+| `trial` | 시행ID |
+| `video_source` | `file`(녹화 영상) / `live`(실시간) — 버전 2 |
+| `video` | 영상 파일명 (실시간은 null) |
 | `frames`, `processed` | frames.csv 줄 수, 처리한 줄 수 |
-| `frame_size`, `video_fps`, `duration_sec` | 원본 크기, fps, 길이 (= 프레임 수 / fps, 소수 3자리) |
+| `frame_size`, `video_fps`, `duration_sec` | 원본 크기, fps, 길이. 녹화: 영상 정보 (길이 = 프레임 수 / fps, 소수 3자리). 실시간: 서버가 처리한 프레임 수 / 마지막 `t_ms` |
 | `frames_with_det`, `frames_with_target` | 박스가 있던 프레임 수, 경고 프레임 수 |
 | `label_counts` | 클래스별 등장 횟수 |
 | `first_level2` | 첫 경고 줄의 `{t_sec, dist, direction}` 또는 null |
@@ -179,6 +207,7 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 | `first_level1`, `first_level3` | null |
 | `max_level` | 가장 높은 레벨 |
 | `yolo_ms_median`, `depth_ms_median` | 처리 시간 중앙값, 소수 1자리 |
+| `server_ms_median` | 실시간: 서버가 프레임 하나를 처리한 시간(받은 사진 풀기 ~ 회신 준비) 중앙값, 소수 1자리. 녹화: null — 버전 2 |
 | `wall_sec` | 실제 걸린 시간 |
 | `expected_dir`, `gt_2m_sec`, `note` | 인자 그대로 |
 
@@ -188,13 +217,14 @@ CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": "path", 
 | 칸 | 값 |
 |---|---|
 | `run_at` | 돌린 시각 |
-| `args` | 인자 전부 (`trial`은 실제로 쓴 값) |
-| `pipeline` | device, YOLO 가중치, depth 모델, conf, imgsz, torch·ultralytics·transformers·opencv 버전 |
+| `video_source` | `file` / `live` — 버전 2 |
+| `args` | 인자 전부 (`trial`, `depth_every_n`은 실제로 쓴 값). 실시간: `trial`, `device`, `depth_every_n` |
+| `pipeline` | device, YOLO 가중치, depth 모델, conf, imgsz, depth_every_n, openvino, torch·ultralytics·transformers·opencv 버전 |
 | `alarm_constants` | 3장 값 전부 (`CHOICES` 포함) |
 | `runner` | 이름 |
 | `git_commit` | `git rev-parse HEAD`. 실패하면 `"unknown"` |
-| `video_file` | 파일명만 (경로 제외) |
-| `schema_version` | 1 |
+| `video_file` | 파일명만 (경로 제외). 실시간은 null |
+| `schema_version` | 2 |
 
 ---
 
@@ -265,7 +295,7 @@ run 폴더는 읽기만 하고, 결과는 `scores/<MMDD_HHMMSS>/`에 쓴다 (`sc
 
 1. `<MMDD>_front_01`, `_left_01`, `_right_01`, `_none_01`을 촬영한다. 같은 5 m 경로, 같은 촬영 모드로 찍는다.
 2. 영상마다 통과 시각을 재서 `trials.csv` 4줄을 쓴다.
-3. 코드를 커밋한 뒤 4번 돌린다: `python test_model3.py --video <영상> --runner <이름>`
+3. 코드를 커밋한 뒤 4번 돌린다: `python run_model.py --video <영상> --runner <이름>`
 4. `python score.py --runs runs/<이름> --trials trials.csv`
 5. 결과와 해석을 `experiments.md`에 적는다.
 
@@ -292,6 +322,7 @@ run 폴더는 읽기만 하고, 결과는 `scores/<MMDD_HHMMSS>/`에 쓴다 (`sc
 ## 10. 하지 말 것
 
 - 각자 코드를 고쳐서 돌리기. 바꿀 게 있으면 팀에서 정하고 커밋한 뒤 모두 다시 돌린다.
+- 판정이나 처리 순서를 `run_model.py`·`server.py`에서 고치기. 녹화와 실시간이 갈라진다. `judge.py`에서 고친다.
 - 시행마다 코드의 `SOURCE` 고치기. `--video`를 쓴다.
 - 클래스별로 다르게 처리하기 (사람이면 ~, 의자면 ~)
 - RUN_FORMAT 칸 이름 바꾸기·칸 더하기. 바꾸려면 팀 합의 후 `schema_version`을 올린다.
