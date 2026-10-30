@@ -1,0 +1,12 @@
+# 영상
+*.mp4
+*.mov
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 맥
+.DS_Store
