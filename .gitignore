@@ -10,3 +10,5 @@ venv/
 
 # 맥
 .DS_Store
+connect/runs/yeonsoo/.DS_Store
+connect/runs/.DS_Store

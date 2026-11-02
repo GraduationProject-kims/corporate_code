@@ -1,0 +1,47 @@
+{
+  "trial": "103pouch_01",
+  "video_source": "live",
+  "video": null,
+  "frames": 226,
+  "processed": 226,
+  "frame_size": [
+    360,
+    640
+  ],
+  "video_fps": 3.23,
+  "duration_sec": 70.054,
+  "frames_with_det": 199,
+  "frames_with_target": 226,
+  "label_counts": {
+    "laptop": 13,
+    "person": 112,
+    "chair": 148,
+    "bottle": 124,
+    "dining table": 135,
+    "tv": 4,
+    "cell phone": 1,
+    "banana": 15,
+    "suitcase": 7
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 41.726,
+    "dist": 0.39,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 17.9,
+  "depth_ms_median": 47.1,
+  "server_ms_median": 27.6,
+  "wall_sec": 112.67,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 41.726,
+    "dist": 0.39,
+    "direction": "정면",
+    "target_label": "DEPTH"
+  }
+}
