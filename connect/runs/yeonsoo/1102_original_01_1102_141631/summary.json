@@ -1,0 +1,50 @@
+{
+  "trial": "1102_original_01",
+  "video_source": "live",
+  "video": null,
+  "frames": 183,
+  "processed": 183,
+  "frame_size": [
+    360,
+    640
+  ],
+  "video_fps": 5.52,
+  "duration_sec": 33.13,
+  "frames_with_det": 183,
+  "frames_with_target": 183,
+  "label_counts": {
+    "laptop": 293,
+    "chair": 209,
+    "book": 11,
+    "cup": 6,
+    "pizza": 3,
+    "person": 68,
+    "backpack": 15,
+    "cell phone": 47,
+    "toilet": 1,
+    "keyboard": 1,
+    "bottle": 1,
+    "bird": 5
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 12.883,
+    "dist": 0.467,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 22.1,
+  "depth_ms_median": 70.4,
+  "server_ms_median": 35.3,
+  "wall_sec": 74.3,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 12.883,
+    "dist": 0.467,
+    "direction": "정면",
+    "target_label": "DEPTH"
+  }
+}

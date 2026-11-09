@@ -17,8 +17,15 @@ judge.py — 장애물 경고 판정 (녹화 영상 run_model.py와 실시간 se
 [10/30 YOLO26] 탐지 yolo11n → yolo26s, depth Depth Anything V2 → YOLO26-depth (DEPTH_BACKEND).
             판정 규칙·상수·기록 형식은 그대로. 바뀐 건 모델 불러오기(load_models)와 depth_map뿐
             DEPTH_BACKEND=dav2 로 켜면 예전 모델로 똑같이 돌아감 (베이스라인 비교용)
+[11/2 3D 통로] 클래스 모드에서 "화면 사각형 안"을 "사용자 앞 3D 통로 안"으로 바꿈 (corridor_geom).
+            방향도 화면 칸이 아니라 미터 기준. 기본 타겟 suitcase. 타겟 전용 결과 폴더 추가 (TargetRecorder)
+            PATH_MODE=2d 로 켜면 예전 화면 사각형 판정, TARGET_LABELS= (빈 값) 이면 깊이 기반 판정
+[11/8 전체 클래스] 기본 타겟 suitcase → all (YOLO가 잡는 클래스 전부). 3D 통로 판정·방향 규칙은 그대로
+            "어떤 클래스를 보느냐"만 바뀜. 통로 밖 박스는 여전히 경고 후보가 아님
+            TARGET_LABELS=suitcase 처럼 지정하면 예전처럼 그 클래스만. 결과 폴더는 target_all/
 """
 
+import csv
 import json
 import os
 import subprocess
@@ -71,7 +78,7 @@ DEPTH_EVERY_N = 1      # N프레임마다 depth 1번 (1 = 매 프레임). 결과
 
 # ===== 경로 영역 (2-1 A) =====
 PATH_WIDTH_M = 0.8     # 경로 폭(m): 몸 중심에서 좌우 0.4m
-HFOV_DEG = 70.0        # 카메라 가로 화각, PATH_ROI 계산에만 쓰임
+HFOV_DEG = float(os.environ.get("HFOV_DEG", 70.0))   # 카메라 화면 가로 방향 화각 (세로 영상이면 짧은 변 쪽). 3D 통로 계산에 직접 쓰임 → 실측할 것
 WARN_M = 3             # 2-9 B: 장애물 거리가 이보다 가까우면 경고 (전에는 2)
 PATH_Y = (0.25, 0.75)  # 경로 세로 범위 (천장·바닥 제외)
 # x 폭 = PATH_WIDTH_M / (2 × WARN_M × tan(HFOV/2)) → 3m, 70°면 약 0.19 (x 0.40~0.60)
@@ -81,15 +88,52 @@ NEAR_PERCENTILE = 5    # 2-1 A: 경로 영역 안 depth 하위 몇 % 백분위�
 # 장애물이 경로를 다 덮으면 가운데(정면)가 되어 한 점처럼 프레임마다 흔들리지 않음. None이면 한 점
 NEAR_BAND_M = 0.3
 
-# ===== [3-1조] 클래스 모드 (시험·비교용) =====
-# 실행할 때 TARGET_LABELS=bottle 처럼 주면 그 클래스의 YOLO 박스만 장애물로 봄 (깊이 통로 판정은 안 씀)
-#   예) TARGET_LABELS=bottle RUNNER=지은 uvicorn server:app --host 0.0.0.0 --port 8001
-#       TARGET_LABELS=bottle python run_model.py --video 1019_front_01.mp4 --runner 지은
+# ===== [3-1조] 클래스 모드 =====
+# YOLO 박스만 장애물로 봄 (깊이 통로 판정은 안 씀). [11/8] 기본 타겟 all (YOLO가 잡는 클래스 전부, 전에는 suitcase)
+#   한 클래스만: TARGET_LABELS=suitcase python run_model.py --video 1019_front_01.mp4 --runner 지은
 #   여러 개면 쉼표: TARGET_LABELS=bottle,cup
-# 안 주면(None) 원래대로 깊이 기반 판정. 거리는 어느 모드든 깊이(박스 영역) 값
-TARGET_LABELS = frozenset(s.strip() for s in os.environ["TARGET_LABELS"].split(",") if s.strip()) \
-    if os.environ.get("TARGET_LABELS") else None
-print(f"판정 모드: {'클래스 ' + ','.join(sorted(TARGET_LABELS)) + ' 박스만' if TARGET_LABELS else '깊이 기반 (기본)'}")
+#   깊이 기반 판정(클래스 안 씀)으로 돌릴 때: TARGET_LABELS= python run_model.py ...   (빈 값)
+# 거리는 어느 모드든 깊이(박스 영역) 값
+_target_env = os.environ.get("TARGET_LABELS", "all").strip()
+TARGET_ALL = _target_env.lower() in ("all", "*")   # 클래스 전부
+TARGET_LABELS = None if TARGET_ALL else (frozenset(s.strip() for s in _target_env.split(",") if s.strip()) or None)
+CLASS_MODE = TARGET_ALL or TARGET_LABELS is not None   # False면 깊이 기반 판정
+
+
+def is_target(label):
+    """이 클래스가 장애물 후보인지 (클래스 모드에서만 의미 있음)"""
+    return TARGET_ALL or (TARGET_LABELS is not None and label in TARGET_LABELS)
+
+
+def target_names():
+    """기록용 타겟 이름 목록: ["all"] / ["bottle", "cup"] / None(깊이 기반)"""
+    return ["all"] if TARGET_ALL else (sorted(TARGET_LABELS) if TARGET_LABELS else None)
+
+# ===== [11/2] 3D 통로 (클래스 모드에서만 씀) =====
+# 사용자 몸이 걸어갈 공간을 미터로 정의: 폭 PATH_WIDTH_M, 높이 CORRIDOR_BOTTOM_M~CORRIDOR_TOP_M, 길이 WARN_M
+# 타겟 박스를 depth 거리로 미터 좌표로 바꿔서 이 공간과 겹치면 경로 안.
+# 사람마다 다른 값은 환경변수로: CAMERA_HEIGHT_M=1.62 CAMERA_PITCH_DEG=5 python run_model.py ...
+PATH_MODE = os.environ.get("PATH_MODE", "3d")   # "3d"(사용자 기준 통로) / "2d"(예전 화면 사각형 PATH_ROI)
+if PATH_MODE not in ("3d", "2d"):
+    raise SystemExit(f"PATH_MODE는 3d 또는 2d여야 해요 (지금: {PATH_MODE})")
+USE_CORRIDOR = PATH_MODE == "3d" and CLASS_MODE
+CAMERA_HEIGHT_M = float(os.environ.get("CAMERA_HEIGHT_M", 1.65))     # 바닥~글래스 카메라 높이 (착용자 눈높이). 착용자마다 잴 것 ([11/8] 1.55 → 1.65)
+CAMERA_PITCH_DEG = float(os.environ.get("CAMERA_PITCH_DEG", 0.0))    # 카메라가 수평보다 아래로 숙인 각도 (+ = 아래). 평소 걸을 때 값
+# [11/8] 카메라가 걷는 방향보다 오른쪽으로 돌아간 각도 (+ = 오른쪽을 봄). 메타 안경 고정 어긋남 보정
+#   1009 front/left/right 영상(같은 착용자·같은 날)의 벽 소실점으로 잰 값 8~10° → 잠정 9 (HFOV_DEG 70 기준)
+#   HFOV_DEG를 바꾸면 이 값도 다시 잴 것. 폰 등 다른 카메라 영상은 CAMERA_YAW_DEG=0
+CAMERA_YAW_DEG = float(os.environ.get("CAMERA_YAW_DEG", 9.0))
+CORRIDOR_BOTTOM_M = float(os.environ.get("CORRIDOR_BOTTOM_M", 0.0))  # 통로 바닥 높이 (0 = 바닥에 놓인 수트케이스 포함)
+CORRIDOR_TOP_M = float(os.environ.get("CORRIDOR_TOP_M", CAMERA_HEIGHT_M + 0.2))   # 통로 천장 높이 (머리 위 여유 포함)
+CORRIDOR_MIN_OVERLAP_M = 0.05   # 물체와 통로가 가로·세로로 이만큼 이상 겹쳐야 안 (가장자리 흔들림으로 깜빡이지 않게)
+CORRIDOR_FRONT_M = 0.15         # 물체 중심이 통로 중심선에서 이 안이면 정면 (옆 접근 시행의 30 cm와 정면 0 cm의 중간)
+CORRIDOR_MARKS_M = (1.0, 2.0)   # [11/8] 화면에 얇게 그리는 거리 단면 (보기용, 판정과 무관. WARN_M 단면은 항상 굵게)
+CORRIDOR_NEAR_M = 0.3           # [11/8] 화면에 통로를 몸 앞 이 거리부터 그림 (보기용. 전에는 1.0)
+HEAD_ABOVE_EYE_M = 0.10         # [11/8] 눈(카메라)에서 머리 꼭대기까지 (보기용 머리선. 판정은 CORRIDOR_TOP_M)
+print(f"판정 모드: {('클래스 전부(all)' if TARGET_ALL else '클래스 ' + ','.join(target_names()) + ' 박스만') if CLASS_MODE else '깊이 기반'}"
+      + (f", 3D 통로 (폭 {PATH_WIDTH_M}m, 높이 {CORRIDOR_BOTTOM_M}~{CORRIDOR_TOP_M}m, 길이 {WARN_M}m, "
+         f"카메라 높이 {CAMERA_HEIGHT_M}m 숙임 {CAMERA_PITCH_DEG:g}° 좌우 {CAMERA_YAW_DEG:+g}° 화각 {HFOV_DEG:g}°)"
+         if USE_CORRIDOR else ""))
 
 # ===== YOLO 박스 거리 (클래스는 판정에 쓰지 않음) =====
 BOX_SHRINK = 0.2       # 2-2 B: 박스를 상하좌우 이 비율만큼 줄인 영역에서 거리를 잼
@@ -117,7 +161,9 @@ CSV_COLUMNS = [
     "direction", "beep", "vibrate_ms", "tts", "yolo_ms", "depth_ms", "target_box",
     "motor", "vib_count",
 ]
-CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음", "2-5": ZONE_MODE, "2-7": "B",
+CHOICES = {"2-1": "A", "2-2": "B", "2-3": "경고하지 않음",
+           "2-5": "corridor (미터 기준)" if USE_CORRIDOR else ZONE_MODE,
+           "2-7": "3D 통로 겹침" if USE_CORRIDOR else "B",
            "2-9": "B (PATH_ROI 다시 계산)", "2-10": "A (정면 → neck)",
            "2-11": "B" if NEAR_BAND_M is not None else "A", "2-12": "B" if HOLD_DIRECTION else "A"}
 
@@ -186,6 +232,68 @@ def box_in_path(box, W, H):
     return x_overlap >= BOX_OVERLAP_MIN and y_overlap
 
 
+# ----- [11/2] 3D 통로 -----
+# 좌표: 카메라 기준 x 오른쪽, y 아래, z 앞 → 숙인 각도만큼 돌리고([11/8] 이어서 좌우 각도만큼 돌려서)
+#       사용자 기준(가로, 높이, 앞 거리)으로 바꿈. 가로·앞 거리의 기준은 걷는 방향 (CAMERA_YAW_DEG = 0이면 카메라 방향)
+# 초점거리 fx = (W/2) / tan(HFOV/2), 픽셀은 정사각형, 주점은 화면 중앙으로 가정 (왜곡 보정 없음)
+def focal_px(W):
+    return (W / 2) / np.tan(np.radians(HFOV_DEG) / 2)
+
+
+def corridor_geom(box, dist, W, H):
+    """박스 + 거리(m) → 물체의 미터 좌표와 통로 겹침 판정. 거리가 없으면 None
+    물체를 거리 dist에 선 납작한 판으로 봄 (박스의 네 변을 그 거리로 역투영)
+    반환: x_left/x_right/x_center(m, 오른쪽 +), top/bottom(바닥 기준 높이 m), forward(앞 거리 m),
+         overlap_x/overlap_y(통로와 겹친 길이 m), lateral_ok, vertical_ok, in_corridor"""
+    if dist is None or dist <= 0:
+        return None
+    x1, y1, x2, y2 = box
+    f = focal_px(W)
+    cx, cy = W / 2, H / 2
+    pitch = np.radians(CAMERA_PITCH_DEG)
+    yaw = np.radians(CAMERA_YAW_DEG)
+
+    def level(v):   # 화면 y 픽셀 → (바닥 기준 높이, 숙임을 되돌린 수평 앞 거리)
+        y_cam = (v - cy) * dist / f
+        return (CAMERA_HEIGHT_M - (y_cam * np.cos(pitch) + dist * np.sin(pitch)),
+                dist * np.cos(pitch) - y_cam * np.sin(pitch))
+
+    def walk(x_cam, z_lv):   # [11/8] 좌우 각도를 되돌림: 카메라 수평 좌표 → 걷는 방향 기준 (가로, 앞 거리)
+        return x_cam * np.cos(yaw) + z_lv * np.sin(yaw), -x_cam * np.sin(yaw) + z_lv * np.cos(yaw)
+
+    top, z_top = level(y1)
+    bottom, z_bottom = level(y2)
+    z_mid = (z_top + z_bottom) / 2
+    x_left = walk((x1 - cx) * dist / f, z_mid)[0]
+    x_right = walk((x2 - cx) * dist / f, z_mid)[0]
+    x_mid_cam = ((x1 + x2) / 2 - cx) * dist / f
+    forward_top, forward_bottom = walk(x_mid_cam, z_top)[1], walk(x_mid_cam, z_bottom)[1]
+    half = PATH_WIDTH_M / 2
+    overlap_x = min(x_right, half) - max(x_left, -half)
+    overlap_y = min(top, CORRIDOR_TOP_M) - max(bottom, CORRIDOR_BOTTOM_M)
+    lateral_ok = bool(overlap_x >= CORRIDOR_MIN_OVERLAP_M)
+    vertical_ok = bool(overlap_y >= CORRIDOR_MIN_OVERLAP_M)
+    return dict(x_left=float(x_left), x_right=float(x_right), x_center=float((x_left + x_right) / 2),
+                top=float(top), bottom=float(bottom), forward=float((forward_top + forward_bottom) / 2),
+                overlap_x=float(overlap_x), overlap_y=float(overlap_y),
+                lateral_ok=lateral_ok, vertical_ok=vertical_ok, in_corridor=lateral_ok and vertical_ok)
+
+
+def corridor_point(x, height, forward, W, H):
+    """통로 위 한 점(걷는 방향 기준 가로 x, 바닥 기준 높이, 앞 거리) → 화면 픽셀 (u, v). 카메라 뒤면 None (화면 표시용)
+    corridor_geom의 반대 방향: 좌우 각도만큼 돌리고 → 숙인 각도만큼 돌려서 투영"""
+    pitch, yaw = np.radians(CAMERA_PITCH_DEG), np.radians(CAMERA_YAW_DEG)
+    x_cam = x * np.cos(yaw) - forward * np.sin(yaw)
+    z_lv = x * np.sin(yaw) + forward * np.cos(yaw)
+    down = CAMERA_HEIGHT_M - height
+    y_cam = down * np.cos(pitch) - z_lv * np.sin(pitch)
+    z_cam = down * np.sin(pitch) + z_lv * np.cos(pitch)
+    if z_cam <= 0.05:
+        return None
+    f = focal_px(W)
+    return int(round(W / 2 + x_cam * f / z_cam)), int(round(H / 2 + y_cam * f / z_cam))
+
+
 def box_results_of(r, dm, W, H):
     """YOLO 결과 → [(box, 거리, in_path, label, conf), ...]
     label·conf는 표시(4.5)·기록(4.9)용으로만 들고 다님 (판정에 쓰지 않음). depth가 아직 없으면 거리 None"""
@@ -193,8 +301,12 @@ def box_results_of(r, dm, W, H):
     for b in r.boxes:
         box = tuple(map(int, b.xyxy[0].tolist()))
         dist = box_distance(dm, box) if dm is not None else None
-        results.append((box, dist, box_in_path(box, W, H),
-                        r.names[int(b.cls)], float(b.conf)))
+        if USE_CORRIDOR:   # [11/2] 3D 통로 (거리가 없으면 통로 안인지 알 수 없음 → 경로 밖)
+            geom = corridor_geom(box, dist, W, H)
+            in_path = geom is not None and geom["in_corridor"]
+        else:
+            in_path = box_in_path(box, W, H)
+        results.append((box, dist, in_path, r.names[int(b.cls)], float(b.conf)))
     return results
 
 
@@ -227,11 +339,11 @@ def merge_result(path_res, boxes):
     대상: 경고일 때만. YOLO면 그 박스 항목, DEPTH면 4.3의 장애물 위치 (x, y)"""
     path_m, near_pt = path_res
     cands = []
-    if path_m is not None and not TARGET_LABELS:   # [3-1조] 클래스 모드면 깊이 통로는 후보 아님
+    if path_m is not None and not CLASS_MODE:   # [3-1조] 클래스 모드면 깊이 통로는 후보 아님
         cands.append((path_m, "DEPTH", near_pt))
     for item in boxes:
         _, dist, in_path, label, _ = item
-        if TARGET_LABELS and label not in TARGET_LABELS:   # [3-1조] 클래스 모드: 지정 클래스만
+        if CLASS_MODE and not is_target(label):   # [3-1조] 클래스 모드: 타겟 클래스만 (all이면 전부)
             continue
         if in_path and dist is not None:      # 2-3: 경로 밖 박스는 후보 아님
             cands.append((dist, "YOLO", item))
@@ -261,16 +373,65 @@ def draw_boxes(img, boxes):
 
 def draw_path(img, H, W, obs_m, obs_src, obs_warn, near_pt, motor=""):
     """경로 영역 테두리 (정상 초록 / 경고 빨강) + 상단 장애물 거리 글자 + 경고면 그 아래 큰 모터 글자 + 경로 안 가장 가까운 점"""
-    px0, px1, py0, py1 = roi_pixels(H, W)
     color = (0, 0, 255) if obs_warn else (0, 200, 0)
-    cv2.rectangle(img, (px0, py0), (px1, py1), color, 2)
+    if USE_CORRIDOR:
+        draw_corridor(img, H, W, color)
+    else:
+        px0, px1, py0, py1 = roi_pixels(H, W)
+        cv2.rectangle(img, (px0, py0), (px1, py1), color, 2)
     if obs_m is not None:   # cv2.putText는 한글을 못 그려서 영어로 표시
         put_text(img, f"OBSTACLE {obs_m:.2f}m ({obs_src})", (8, 52), color)   # 위쪽 칸 이름(y 25)과 안 겹치게
     if motor:   # 4.11 진동 명령: 멀리서도 보이게 크게
         put_text(img, f"-> {motor.upper()}", (8, 52 + int(40 * MOTOR_TEXT_SCALE)), color,
                  MOTOR_TEXT_SCALE, max(2, int(2 * MOTOR_TEXT_SCALE)))
-    if near_pt is not None:
+    if near_pt is not None and not USE_CORRIDOR:   # 경로 depth 점은 3D 통로 판정에 안 쓰임
         cv2.circle(img, near_pt, 6, color, 2)
+
+
+EYE_COLOR, HEAD_COLOR = (255, 255, 0), (0, 165, 255)   # [11/8] 눈높이선(하늘색), 머리선(주황) — 보기용
+
+
+def _dashed(img, a, b, color, thick=1, dash=8):
+    """a → b 점선 (화면 표시용)"""
+    a, b = np.array(a, float), np.array(b, float)
+    n = int(np.hypot(*(b - a)) // dash)
+    for k in range(0, n, 2):
+        p, q = a + (b - a) * k / max(n, 1), a + (b - a) * min(k + 1, n) / max(n, 1)
+        cv2.line(img, tuple(int(v) for v in p), tuple(int(v) for v in q), color, thick)
+
+
+def draw_corridor(img, H, W, color, near_m=None):
+    """[11/2] 3D 통로를 화면에 투영: 먼 쪽 사각형(WARN_M) + 가까운 쪽(near_m)으로 이어지는 네 모서리
+    [11/8] + CORRIDOR_MARKS_M 거리 단면(얇게, 거리 글자). 계산으로 그린 눈금이라 depth와 무관 (바닥 테이프와 맞는지 보는 용도)
+    [11/8] near_m 기본 CORRIDOR_NEAR_M(0.3). 통로 양 벽에 눈높이선(CAMERA_HEIGHT_M)과 머리선(+HEAD_ABOVE_EYE_M) 점선"""
+    near_m = CORRIDOR_NEAR_M if near_m is None else near_m
+    half = PATH_WIDTH_M / 2
+    for h, c, name in ((CAMERA_HEIGHT_M, EYE_COLOR, "eye"), (CAMERA_HEIGHT_M + HEAD_ABOVE_EYE_M, HEAD_COLOR, "head")):
+        fl, fr = corridor_point(-half, h, WARN_M, W, H), corridor_point(half, h, WARN_M, W, H)
+        for x, f_pt in ((-half, fl), (half, fr)):
+            n_pt = corridor_point(x, h, near_m, W, H)
+            if f_pt and n_pt:
+                _dashed(img, n_pt, f_pt, c)
+        if fl and fr:
+            _dashed(img, fl, fr, c)
+            put_text(img, f"{name} {h:.2f}m", (fr[0] + 6, fr[1] + (12 if name == "eye" else -4)), c, 0.4, 1)
+    corners = [(-half, CORRIDOR_BOTTOM_M), (half, CORRIDOR_BOTTOM_M), (half, CORRIDOR_TOP_M), (-half, CORRIDOR_TOP_M)]
+    far = [corridor_point(x, h, WARN_M, W, H) for x, h in corners]
+    near = [corridor_point(x, h, near_m, W, H) for x, h in corners]
+    for i in range(4):
+        if far[i] and far[(i + 1) % 4]:
+            cv2.line(img, far[i], far[(i + 1) % 4], color, 2)
+        if far[i] and near[i]:
+            cv2.line(img, far[i], near[i], color, 1)
+    for z in CORRIDOR_MARKS_M:
+        if z >= WARN_M:
+            continue
+        mk = [corridor_point(x, h, z, W, H) for x, h in corners]
+        for i in range(4):
+            if mk[i] and mk[(i + 1) % 4]:
+                cv2.line(img, mk[i], mk[(i + 1) % 4], color, 1)
+        if mk[1]:
+            put_text(img, f"{z:g}m", (mk[1][0] + 4, mk[1][1] - 4), color, 0.45)
 
 
 def depth_colormap(dm):
@@ -299,7 +460,9 @@ def get_zone(center_x, W):
 
 
 def draw_zones(img, W, H, color=(255, 255, 0)):
-    """세로선 2개 + 칸 이름 표시 (ZONE_DRAW 기준, 판정 경계와 다를 수 있음)"""
+    """세로선 2개 + 칸 이름 표시 (ZONE_DRAW 기준, 판정 경계와 다를 수 있음). 3D 통로 모드엔 화면 칸이 없음"""
+    if USE_CORRIDOR:
+        return
     left, right = zone_limits(W, ZONE_DRAW)
     cv2.line(img, (left, 0), (left, H), color, 2)
     cv2.line(img, (right, 0), (right, H), color, 2)
@@ -307,12 +470,15 @@ def draw_zones(img, W, H, color=(255, 255, 0)):
         cv2.putText(img, text, (x, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
 
-def target_direction(obs_src, obs_target, W):
+def target_direction(obs_src, obs_target, W, H):
     """경고 대상의 방향 (왼쪽/정면/오른쪽). 경고가 없으면 None
     YOLO면 박스 가로 중앙, DEPTH면 4.3의 가장 가까운 점 x로 판정 (경고 여부는 바꾸지 않음)
     2-5 사용 안 함("off")이면 PATH_ROI x 범위 3등분 기준 (4.9 기본 규칙)"""
     if obs_target is None:
         return None
+    if USE_CORRIDOR and obs_src == "YOLO":   # [11/2] 물체 중심이 통로 중심선에서 몇 m 옆인지로 판정
+        x_center = corridor_geom(obs_target[0], obs_target[1], W, H)["x_center"]
+        return ZONE_KO["LEFT" if x_center < -CORRIDOR_FRONT_M else "RIGHT" if x_center > CORRIDOR_FRONT_M else "FRONT"]
     if obs_src == "YOLO":
         x1, _, x2, _ = obs_target[0]
         x = (x1 + x2) / 2
@@ -388,7 +554,7 @@ def judge_frame(r, depth_m, W, H, held_dir):
     # 4.4 결과 합치기: 경로 depth vs 경로 안 YOLO 박스 중 가까운 쪽
     obs_m, obs_src, obs_warn, obs_target = merge_result((path_m, near_pt), box_results)
     # 4.8 경고 대상의 방향 칸
-    direction = target_direction(obs_src, obs_target, W)
+    direction = target_direction(obs_src, obs_target, W, H)
     if HOLD_DIRECTION:
         if obs_warn:
             direction = held_dir = held_dir or direction
@@ -412,7 +578,11 @@ def alarm_constants():
         "BOX_OVERLAP_MIN": BOX_OVERLAP_MIN, "ZONE_MODE": ZONE_MODE, "ZONE_DRAW": ZONE_DRAW,
         "ZONE_PATH_SPLIT": list(ZONE_PATH_SPLIT), "MOTOR_MAP": MOTOR_MAP, "VIB_COUNT": VIB_COUNT,
         "RUNS_DIR": RUNS_DIR, "SCHEMA_VERSION": SCHEMA_VERSION, "DEPTH_SCALE": DEPTH_SCALE, "choices": CHOICES,
-        "TARGET_LABELS": sorted(TARGET_LABELS) if TARGET_LABELS else None,   # [3-1조] None = 깊이 기반(기본)
+        "TARGET_LABELS": target_names(),   # [3-1조] ["all"] = 클래스 전부, None = 깊이 기반
+        "PATH_MODE": PATH_MODE, "USE_CORRIDOR": USE_CORRIDOR, "CAMERA_HEIGHT_M": CAMERA_HEIGHT_M,   # [11/2]
+        "CAMERA_PITCH_DEG": CAMERA_PITCH_DEG, "CAMERA_YAW_DEG": CAMERA_YAW_DEG, "CORRIDOR_BOTTOM_M": CORRIDOR_BOTTOM_M,
+        "CORRIDOR_TOP_M": CORRIDOR_TOP_M, "CORRIDOR_MIN_OVERLAP_M": CORRIDOR_MIN_OVERLAP_M,
+        "CORRIDOR_FRONT_M": CORRIDOR_FRONT_M,
     }
 
 
@@ -579,6 +749,17 @@ def make_run_dir(runner, trial, started=None):
     return run_dir
 
 
+LATENCY_COLUMNS = ["frame_idx", "t_ms", "recv_to_start_ms", "decode_ms", "yolo_ms", "depth_ms", "server_ms"]
+TARGET_SCHEMA_VERSION = 1
+TARGET_COLUMNS = [
+    "trial", "frame_idx", "t_ms", "det_idx", "n_targets", "label", "conf",
+    "x1", "y1", "x2", "y2", "box_w_px", "box_h_px", "box_cx", "box_cy", "box_clipped",   # 원본 픽셀
+    "dist", "depth_fresh", "forward_m", "x_left_m", "x_right_m", "x_center_m", "top_m", "bottom_m",
+    "width_m", "height_m", "overlap_x_m", "overlap_y_m", "lateral_ok", "vertical_ok", "in_path", "in_warn_range",
+    "is_warn_target", "level", "level_name", "direction", "motor", "vib_count", "yolo_ms", "depth_ms",
+]
+
+
 def write_json(path, data):
     with open(path, "x", encoding="utf-8") as f:   # "x": 이미 있으면 덮어쓰지 않음
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -619,6 +800,153 @@ def run_meta(video_source, args, pipeline, runner, video_file, run_at=None):
         "git_commit": git_commit(),
         "video_file": video_file,
         "schema_version": SCHEMA_VERSION,
+    }
+
+
+def target_rows(trial, t_ms, out):
+    """[11/2] 프레임 하나의 타겟 탐지 → 타겟 frames.csv 줄들 (탐지 1개당 1줄, 좌표는 원본 픽셀)"""
+    j, W, H, sx = out["j"], out["W"], out["H"], out["sx"]
+    targets = [item for item in j["box_results"] if is_target(item[3])]
+    warn_item = j["obs_target"] if j["obs_warn"] and j["obs_src"] == "YOLO" else None
+    level = 2 if j["obs_warn"] else 0
+    rm3 = lambda v: round(v, 3)
+    rows = []
+    for det_idx, item in enumerate(targets):
+        box, dist, in_path, label, conf = item
+        x1, y1, x2, y2 = box
+        geom = corridor_geom(box, dist, W, H)
+        row = dict.fromkeys(TARGET_COLUMNS, "")
+        row.update(
+            trial=trial, frame_idx=out["idx"], t_ms=t_ms, det_idx=det_idx, n_targets=len(targets),
+            label=label, conf=rm3(conf),
+            x1=round(x1 * sx), y1=round(y1 * sx), x2=round(x2 * sx), y2=round(y2 * sx),
+            box_w_px=round((x2 - x1) * sx), box_h_px=round((y2 - y1) * sx),
+            box_cx=round((x1 + x2) / 2 * sx), box_cy=round((y1 + y2) / 2 * sx),
+            box_clipped=int(x1 <= 0 or y1 <= 0 or x2 >= W - 1 or y2 >= H - 1),   # 화면 끝에 잘림 → 크기·중심 부정확
+            depth_fresh=int(out["depth_ms"] is not None),
+            in_path=int(in_path),
+            is_warn_target=int(item is warn_item), level=level, level_name="경고" if level else "없음",
+            yolo_ms=round(out["yolo_ms"], 1),
+            depth_ms="" if out["depth_ms"] is None else round(out["depth_ms"], 1),
+        )
+        if dist is not None:
+            row.update(dist=rm3(dist), in_warn_range=int(dist < WARN_M))
+        if geom is not None:
+            row.update(forward_m=rm3(geom["forward"]), x_left_m=rm3(geom["x_left"]), x_right_m=rm3(geom["x_right"]),
+                       x_center_m=rm3(geom["x_center"]), top_m=rm3(geom["top"]), bottom_m=rm3(geom["bottom"]),
+                       width_m=rm3(geom["x_right"] - geom["x_left"]), height_m=rm3(geom["top"] - geom["bottom"]),
+                       overlap_x_m=rm3(geom["overlap_x"]), overlap_y_m=rm3(geom["overlap_y"]),
+                       lateral_ok=int(geom["lateral_ok"]), vertical_ok=int(geom["vertical_ok"]))
+        if item is warn_item:
+            row.update(direction=j["direction"] or "", motor=j["motor"], vib_count=j["vib_count"])
+        rows.append(row)
+    return rows
+
+
+class TargetRecorder:
+    """[11/2] 타겟 클래스 전용 결과 폴더: <run 폴더>/target_<클래스>/ 에
+    run_meta.json, frames.csv, latency.csv, summary.json (전체 결과 파일과 같은 구성, 타겟을 잡은 프레임만)
+    녹화·실시간이 같은 클래스로 저장. 클래스 모드가 아니면 쓰지 않음 (make_target_recorder가 None)"""
+
+    def __init__(self, run_dir, meta):
+        self.dir = Path(run_dir) / ("target_" + "_".join(target_names()))   # all이면 target_all
+        self.dir.mkdir(exist_ok=False)
+        self.rows, self.lat = [], []
+        self.frames_seen = 0
+        self.warned_frames = 0        # 경고가 뜬 전체 프레임 (타겟 박스 경고만 있는 모드라 탐지 프레임과 같아야 함)
+        self.miss_now = self.miss_max = 0
+        self.frame_wh = None
+        write_json(self.dir / "run_meta.json", {
+            **meta, "target_labels": target_names(), "target_schema_version": TARGET_SCHEMA_VERSION})
+        self.f = open(self.dir / "frames.csv", "x", newline="", encoding="utf-8-sig")
+        self.w = csv.DictWriter(self.f, fieldnames=TARGET_COLUMNS)
+        self.w.writeheader()
+        self.lf = open(self.dir / "latency.csv", "x", newline="", encoding="utf-8-sig")
+        self.lw = csv.DictWriter(self.lf, fieldnames=LATENCY_COLUMNS)
+        self.lw.writeheader()
+
+    def add(self, trial, t_ms, out, lat=None):
+        """매 프레임 부름. out: FramePipeline.step() 결과, lat: 구간별 지연 (녹화면 None → yolo·depth만 채움)
+        타겟이 없는 프레임은 줄을 안 쓰고 놓친 프레임 수만 셈"""
+        self.frames_seen += 1
+        self.frame_wh = (out["W"], out["H"])
+        self.warned_frames += int(bool(out["j"]["obs_warn"]))
+        rows = target_rows(trial, t_ms, out)
+        if not rows:
+            self.miss_now += 1
+            self.miss_max = max(self.miss_max, self.miss_now)
+            return
+        self.miss_now = 0
+        for row in rows:
+            self.rows.append(row)
+            self.w.writerow(row)
+        self.f.flush()
+        lat_row = dict.fromkeys(LATENCY_COLUMNS, "")
+        lat_row.update(frame_idx=out["idx"], t_ms=t_ms, yolo_ms=round(out["yolo_ms"], 1),
+                       depth_ms="" if out["depth_ms"] is None else round(out["depth_ms"], 1))
+        lat_row.update(lat or {})
+        self.lat.append(lat_row)
+        self.lw.writerow(lat_row)
+        self.lf.flush()
+
+    def close(self, trial, video_source, video, wall_sec, expected_dir=None, gt_2m_sec=None, note=None):
+        self.f.close()
+        self.lf.close()
+        write_json(self.dir / "summary.json", target_summary(
+            self.rows, self.lat, trial, video_source, video, self.frames_seen, self.warned_frames, self.miss_max,
+            self.frame_wh, wall_sec, expected_dir, gt_2m_sec, note))
+
+
+def make_target_recorder(run_dir, meta):
+    return TargetRecorder(run_dir, meta) if CLASS_MODE else None
+
+
+def target_summary(rows, lat, trial, video_source, video, frames_seen, warned_frames, miss_max, frame_wh, wall_sec,
+                   expected_dir, gt_2m_sec, note):
+    """타겟 summary.json (타겟 frames.csv·latency.csv에서 다시 셀 수 있는 값 + 전체 프레임 수)"""
+    t_sec = lambda r: r["t_ms"] / 1000 if r["t_ms"] != "" else None
+    moment = lambda r: None if r is None else {
+        "frame_idx": r["frame_idx"], "t_sec": t_sec(r), "dist": r["dist"], "x_center_m": r["x_center_m"],
+        "direction": r["direction"] or None, "motor": r["motor"] or None}
+    first = lambda test: next((r for r in rows if test(r)), None)
+    med = lambda v, n=1: round(float(np.median(v)), n) if v else None
+    span = lambda v: None if not v else [min(v), max(v)]
+    frames_detected = len({r["frame_idx"] for r in rows})
+    frames_in_path = len({r["frame_idx"] for r in rows if r["in_path"] == 1})
+    dists = [r["dist"] for r in rows if r["dist"] != ""]
+    return {
+        "trial": trial,
+        "video_source": video_source,
+        "video": video,
+        "target_labels": target_names(),
+        "frames_total": frames_seen,
+        "frames_detected": frames_detected,
+        "detection_rate": round(frames_detected / frames_seen, 4) if frames_seen else None,
+        "longest_miss_frames": miss_max,          # 타겟을 연달아 놓친 가장 긴 구간 (프레임 수)
+        "detections": len(rows),
+        "frames_in_path": frames_in_path,
+        "frames_warned": warned_frames,
+        "first_detection": moment(first(lambda r: True)),
+        "first_in_path": moment(first(lambda r: r["in_path"] == 1)),
+        "first_warning": moment(first(lambda r: r["is_warn_target"] == 1)),
+        "conf_median": med([r["conf"] for r in rows], 3),
+        "conf_min_max": span([r["conf"] for r in rows]),
+        "dist_median": med(dists, 3),
+        "dist_min_max": span(dists),
+        "width_m_median": med([r["width_m"] for r in rows if r["width_m"] != "" and r["box_clipped"] == 0], 3),
+        "height_m_median": med([r["height_m"] for r in rows if r["height_m"] != "" and r["box_clipped"] == 0], 3),
+        "yolo_ms_median": med([l["yolo_ms"] for l in lat if l["yolo_ms"] != ""]),
+        "depth_ms_median": med([l["depth_ms"] for l in lat if l["depth_ms"] != ""]),
+        "server_ms_median": med([l["server_ms"] for l in lat if l["server_ms"] != ""]),
+        "focal_px": None if frame_wh is None else round(float(focal_px(frame_wh[0])), 1),   # 축소 화면 기준
+        "corridor": None if not USE_CORRIDOR else {
+            "width_m": PATH_WIDTH_M, "bottom_m": CORRIDOR_BOTTOM_M, "top_m": CORRIDOR_TOP_M, "length_m": WARN_M,
+            "camera_height_m": CAMERA_HEIGHT_M, "camera_pitch_deg": CAMERA_PITCH_DEG, "camera_yaw_deg": CAMERA_YAW_DEG, "hfov_deg": HFOV_DEG},
+        "wall_sec": round(wall_sec, 2),
+        "expected_dir": expected_dir,
+        "gt_2m_sec": gt_2m_sec,
+        "note": note,
+        "target_schema_version": TARGET_SCHEMA_VERSION,
     }
 
 

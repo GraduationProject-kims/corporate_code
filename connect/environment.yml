@@ -7,7 +7,7 @@ dependencies:
   - pip:
       - fastapi==0.115.6
       - "uvicorn[standard]==0.34.0"
-      - websockets==14.1
+      - websockets==16.0       # [11/8] 서버 맥 실제 버전에 맞춤 (requirements-live.txt와 같음)
       - opencv-python==4.10.0.84
       - ultralytics>=8.4.104   # [10/30] YOLO26·YOLO26-depth는 8.4.104부터 (서버 맥은 이미 8.4.175)
       - numpy==1.26.4

@@ -14,6 +14,7 @@
                                           --expected_dir 정면 --gt_2m_sec 4.2 --note "메모" --depth_every_n 1]
        --video 0 이면 맥북 카메라 (run 폴더 안 만듦, --runner 없어도 됨)
        영상 파일이면 runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/ 에 run_meta.json, frames.csv, summary.json 저장 (4.9)
+       + 그 안 target_<클래스>/ 에 타겟만 따로 run_meta.json, frames.csv, latency.csv, summary.json
        --depth_every_n을 안 주면 judge.py의 DEPTH_EVERY_N
 조작:  영상 창을 클릭해 둔 상태에서
        q      종료 (창을 껐다면 터미널에서 Ctrl+C)
@@ -173,6 +174,7 @@ if SHOW_WINDOW:
 
 # ===== run 폴더 (4.9, 영상 파일일 때만) =====
 run_dir, csv_file, csv_writer, rows, trial = None, None, None, [], None
+target_rec = None      # [11/2] 타겟 전용 결과 폴더 (클래스 모드일 때만)
 if is_file:
     trial = args.trial or Path(VIDEO).stem
     if args.trial and args.trial != Path(VIDEO).stem:
@@ -185,9 +187,10 @@ if is_file:
         print("[주의] run 기록 중에는 반복 재생하지 않아요 (같은 프레임이 두 번 기록되지 않게)")
         LOOP_VIDEO = False
     run_dir = judge.make_run_dir(args.runner, trial)
-    judge.write_json(run_dir / "run_meta.json", judge.run_meta(
-        "file", vars(args), judge.pipeline_info(DEVICE, DEPTH_EVERY_N, using_openvino),
-        args.runner, os.path.basename(VIDEO)))
+    meta = judge.run_meta("file", vars(args), judge.pipeline_info(DEVICE, DEPTH_EVERY_N, using_openvino),
+                          args.runner, os.path.basename(VIDEO))
+    judge.write_json(run_dir / "run_meta.json", meta)
+    target_rec = judge.make_target_recorder(run_dir, meta)
     csv_file = open(run_dir / "frames.csv", "x", newline="", encoding="utf-8-sig")
     csv_writer = csv.DictWriter(csv_file, fieldnames=judge.CSV_COLUMNS)
     csv_writer.writeheader()
@@ -228,9 +231,12 @@ try:
 
         # 4.9 frames.csv 한 줄 (일시정지 전에 한 번만 씀)
         if csv_writer:
-            save_row(judge.frame_row(trial, out["idx"], frame_time_ms(out["idx"], pos_msec, src_fps), out["sx"],
+            t_ms = frame_time_ms(out["idx"], pos_msec, src_fps)
+            save_row(judge.frame_row(trial, out["idx"], t_ms, out["sx"],
                                      box_results, (obs_m, obs_src, obs_warn, obs_target), direction,
                                      (motor, vib_count), yolo_ms, depth_ms))
+            if target_rec:
+                target_rec.add(trial, t_ms, out)
 
         # 4.5 화면 표시 (선택)
         if SHOW_WINDOW:
@@ -330,6 +336,10 @@ if run_dir is not None:
         rows, trial, "file", os.path.basename(VIDEO), list(src_size), src_fps,
         round(src_frames / src_fps, 3) if src_fps else None, time.time() - run_t0,
         args.expected_dir, args.gt_2m_sec, args.note))
+    if target_rec:
+        target_rec.close(trial, "file", os.path.basename(VIDEO), time.time() - run_t0,
+                         args.expected_dir, args.gt_2m_sec, args.note)
+        print(f"타겟 결과: {target_rec.dir}")
 
 # ===== 4.6 요약 =====
 total_sec = (time.time() - start_time) if start_time else 0.0

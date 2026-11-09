@@ -6,7 +6,7 @@ live_record.py — 실시간 서버(server.py)의 시행 기록  [3-1조 추가]
   그냥 Enter          → 기록 끝
 결과: runs/<RUNNER>/<시행ID>_<MMDD>_<HHMMSS>/
   run_meta.json, frames.csv, summary.json (녹화 영상 run_model.py와 같은 형식, judge.py 공통 함수),
-  latency.csv(구간별 지연)
+  latency.csv(구간별 지연), target_<클래스>/ (타겟만 따로 같은 구성, judge.TargetRecorder)
 RUNNER(돌린 사람 이름)는 서버 실행할 때 지정: RUNNER=지은 uvicorn server:app --host 0.0.0.0 --port 8001
 
 [10/26 통합]
@@ -26,7 +26,7 @@ from datetime import datetime
 import judge
 
 RUNNER = os.environ.get("RUNNER", "live")
-LATENCY_COLUMNS = ["frame_idx", "t_ms", "recv_to_start_ms", "decode_ms", "yolo_ms", "depth_ms", "server_ms"]
+LATENCY_COLUMNS = judge.LATENCY_COLUMNS
 
 _lock = threading.Lock()
 _cur = {"rec": None}
@@ -47,8 +47,10 @@ class _Recorder:
         self.lf = open(self.dir / "latency.csv", "x", newline="", encoding="utf-8-sig")
         self.lw = csv.DictWriter(self.lf, fieldnames=LATENCY_COLUMNS)
         self.lw.writeheader()
-        judge.write_json(self.dir / "run_meta.json", judge.run_meta(
-            "live", {"trial": trial, **_cfg["args"]}, _cfg["pipeline"], RUNNER, None, run_at=self.started))
+        meta = judge.run_meta("live", {"trial": trial, **_cfg["args"]}, _cfg["pipeline"], RUNNER, None,
+                              run_at=self.started)
+        judge.write_json(self.dir / "run_meta.json", meta)
+        self.target = judge.make_target_recorder(self.dir, meta)   # [11/2] 타겟 전용 결과 폴더 (클래스 모드일 때만)
 
     def add(self, recv_ms, out, lat):
         """out: judge.FramePipeline.step() 결과, lat: 구간별 지연(ms)"""
@@ -69,6 +71,8 @@ class _Recorder:
         self.lat.append(lat_row)
         self.lw.writerow(lat_row)
         self.lf.flush()
+        if self.target:
+            self.target.add(self.trial, t_ms, out, lat)
 
     def close(self):
         self.f.close()
@@ -80,6 +84,8 @@ class _Recorder:
             round(len(rows) / dur, 2) if dur > 0 else None,   # 실시간: 서버가 처리한 프레임 기준
             round(dur, 3), time.time() - self.t0_ms / 1000,
             server_ms=[l["server_ms"] for l in self.lat]))
+        if self.target:
+            self.target.close(self.trial, "live", None, time.time() - self.t0_ms / 1000)
 
 
 def start_trial(trial):
