@@ -1,0 +1,41 @@
+{
+  "trial": "1113_left_04_cropped",
+  "video_source": "file",
+  "video": "1113_left_04_cropped.mp4",
+  "frames": 165,
+  "processed": 165,
+  "frame_size": [
+    540,
+    720
+  ],
+  "video_fps": 24.0,
+  "duration_sec": 6.875,
+  "frames_with_det": 119,
+  "frames_with_target": 48,
+  "label_counts": {
+    "refrigerator": 21,
+    "stop sign": 100,
+    "person": 3
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 3.625,
+    "dist": 1.347,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.7,
+  "depth_ms_median": 54.0,
+  "server_ms_median": null,
+  "wall_sec": 14.73,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 3.625,
+    "dist": 1.347,
+    "direction": "왼쪽",
+    "target_label": "stop sign"
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "run_at": "2026-11-13T14:18:11",
+  "video_source": "file",
+  "args": {
+    "video": "1113_front_01.mp4",
+    "trial": "1113_front_01",
+    "runner": "yeonsoo",
+    "expected_dir": null,
+    "gt_2m_sec": null,
+    "note": null,
+    "save_video": true,
+    "depth_every_n": 3
+  },
+  "pipeline": {
+    "device": "mps",
+    "yolo_weights": "yolo26s.pt",
+    "depth_backend": "yolo26",
+    "depth_model": "yolo26n-depth.pt",
+    "depth_imgsz": 768,
+    "depth_coreml": false,
+    "conf": 0.4,
+    "imgsz": 416,
+    "depth_every_n": 3,
+    "openvino": false,
+    "torch": "2.14.1",
+    "ultralytics": "8.4.175",
+    "transformers": "5.19.0",
+    "opencv": "5.0.0"
+  },
+  "alarm_constants": {
+    "FRAME_WIDTH": 640,
+    "CONF_THRES": 0.4,
+    "USE_DEPTH": true,
+    "MODEL_PATH": "yolo26s.pt",
+    "IMG_SIZE": 416,
+    "PATH_WIDTH_M": 0.8,
+    "HFOV_DEG": 70.0,
+    "WARN_M": 3,
+    "PATH_Y": [
+      0.25,
+      0.75
+    ],
+    "PATH_ROI": [
+      0.4,
+      0.6,
+      0.25,
+      0.75
+    ],
+    "BOX_SHRINK": 0.2,
+    "BOX_PERCENTILE": 30,
+    "NEAR_PERCENTILE": 5,
+    "NEAR_BAND_M": 0.3,
+    "HOLD_DIRECTION": true,
+    "BOX_OVERLAP_MIN": 0.3,
+    "ZONE_MODE": "path",
+    "ZONE_DRAW": "screen",
+    "ZONE_PATH_SPLIT": [
+      0.3333333333333333,
+      0.6666666666666666
+    ],
+    "MOTOR_MAP": {
+      "왼쪽": "right",
+      "오른쪽": "left",
+      "정면": "neck"
+    },
+    "VIB_COUNT": {
+      "1": 1,
+      "2": 2
+    },
+    "RUNS_DIR": "runs",
+    "SCHEMA_VERSION": 2,
+    "DEPTH_SCALE": 1.0,
+    "choices": {
+      "2-1": "A",
+      "2-2": "B",
+      "2-3": "경고하지 않음",
+      "2-5": "corridor (미터 기준)",
+      "2-7": "3D 통로 겹침",
+      "2-9": "B (PATH_ROI 다시 계산)",
+      "2-10": "A (정면 → neck)",
+      "2-11": "B",
+      "2-12": "B"
+    },
+    "TARGET_LABELS": [
+      "all"
+    ],
+    "PATH_MODE": "3d",
+    "USE_CORRIDOR": true,
+    "CAMERA_HEIGHT_M": 1.65,
+    "CAMERA_PITCH_DEG": 0.0,
+    "CAMERA_YAW_DEG": 9.0,
+    "CORRIDOR_BOTTOM_M": 0.0,
+    "CORRIDOR_TOP_M": 1.8499999999999999,
+    "CORRIDOR_MIN_OVERLAP_M": 0.05,
+    "CORRIDOR_FRONT_M": 0.15
+  },
+  "runner": "yeonsoo",
+  "git_commit": "1ab6fbfcaa9e8f503c99718be2a3fc1508957022",
+  "video_file": "1113_front_01.mp4",
+  "schema_version": 2,
+  "target_labels": [
+    "all"
+  ],
+  "target_schema_version": 1
+}

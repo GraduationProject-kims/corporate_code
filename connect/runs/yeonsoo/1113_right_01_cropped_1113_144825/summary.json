@@ -1,0 +1,39 @@
+{
+  "trial": "1113_right_01_cropped",
+  "video_source": "file",
+  "video": "1113_right_01_cropped.mp4",
+  "frames": 174,
+  "processed": 174,
+  "frame_size": [
+    538,
+    720
+  ],
+  "video_fps": 24.0,
+  "duration_sec": 7.25,
+  "frames_with_det": 170,
+  "frames_with_target": 76,
+  "label_counts": {
+    "stop sign": 170
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 4.083,
+    "dist": 2.906,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 20.7,
+  "depth_ms_median": 56.5,
+  "server_ms_median": null,
+  "wall_sec": 15.64,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 4.083,
+    "dist": 2.906,
+    "direction": "정면",
+    "target_label": "stop sign"
+  }
+}

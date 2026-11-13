@@ -1,0 +1,49 @@
+{
+  "trial": "1113_heptic_01",
+  "video_source": "live",
+  "video": null,
+  "frames": 191,
+  "processed": 191,
+  "frame_size": [
+    504,
+    896
+  ],
+  "video_fps": 6.98,
+  "duration_sec": 27.369,
+  "frames_with_det": 159,
+  "frames_with_target": 143,
+  "label_counts": {
+    "keyboard": 60,
+    "tv": 88,
+    "chair": 12,
+    "stop sign": 8,
+    "laptop": 47,
+    "umbrella": 1,
+    "person": 29,
+    "skateboard": 1,
+    "hot dog": 1,
+    "bed": 2,
+    "book": 1
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 12.896,
+    "dist": 0.61,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.5,
+  "depth_ms_median": 65.7,
+  "server_ms_median": 31.9,
+  "wall_sec": 42.92,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 12.896,
+    "dist": 0.61,
+    "direction": "정면",
+    "target_label": "tv"
+  }
+}

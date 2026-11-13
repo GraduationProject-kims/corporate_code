@@ -1,0 +1,30 @@
+{
+  "trial": "1113_left_03",
+  "video_source": "file",
+  "video": "1113_left_03.mp4",
+  "frames": 199,
+  "processed": 199,
+  "frame_size": [
+    1080,
+    1440
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 6.633,
+  "frames_with_det": 199,
+  "frames_with_target": 0,
+  "label_counts": {
+    "stop sign": 199
+  },
+  "first_level1": null,
+  "first_level2": null,
+  "first_level3": null,
+  "max_level": 0,
+  "yolo_ms_median": 20.2,
+  "depth_ms_median": 55.4,
+  "server_ms_median": null,
+  "wall_sec": 23.75,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": null
+}

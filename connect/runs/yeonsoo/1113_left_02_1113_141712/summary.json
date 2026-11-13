@@ -1,0 +1,42 @@
+{
+  "trial": "1113_left_02",
+  "video_source": "file",
+  "video": "1113_left_02.mp4",
+  "frames": 224,
+  "processed": 224,
+  "frame_size": [
+    1080,
+    1436
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 7.467,
+  "frames_with_det": 145,
+  "frames_with_target": 1,
+  "label_counts": {
+    "stop sign": 141,
+    "laptop": 2,
+    "fire hydrant": 4,
+    "refrigerator": 7
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 7.033,
+    "dist": 2.383,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.3,
+  "depth_ms_median": 54.5,
+  "server_ms_median": null,
+  "wall_sec": 18.36,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 7.033,
+    "dist": 2.383,
+    "direction": "왼쪽",
+    "target_label": "refrigerator"
+  }
+}

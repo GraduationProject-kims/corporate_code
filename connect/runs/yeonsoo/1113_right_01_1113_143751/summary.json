@@ -1,0 +1,39 @@
+{
+  "trial": "1113_right_01",
+  "video_source": "file",
+  "video": "1113_right_01.mp4",
+  "frames": 216,
+  "processed": 216,
+  "frame_size": [
+    1080,
+    1450
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 7.2,
+  "frames_with_det": 213,
+  "frames_with_target": 60,
+  "label_counts": {
+    "stop sign": 215
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 4.5,
+    "dist": 2.324,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.9,
+  "depth_ms_median": 54.3,
+  "server_ms_median": null,
+  "wall_sec": 36.72,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 4.5,
+    "dist": 2.324,
+    "direction": "왼쪽",
+    "target_label": "stop sign"
+  }
+}

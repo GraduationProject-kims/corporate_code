@@ -43,7 +43,9 @@ import judge   # 판정·처리 순서·설정값은 전부 judge.py
 
 # ===== 설정 (보기·출력용. 판정에는 영향 없음) =====
 HERE = os.path.dirname(os.path.abspath(__file__))
-SOURCE = os.path.join(HERE, "1009_left_01.mp4")   # 영상 파일 / 맥북 카메라로 하려면 SOURCE = 0
+# [11/13] 녹화 영상은 이 폴더(connect/videos)에 모아 둠. 환경변수 VIDEO_DIR로 바꿀 수 있음
+VIDEO_DIR = os.environ.get("VIDEO_DIR", os.path.join(HERE, "videos"))
+SOURCE = os.path.join(VIDEO_DIR, "1009_left_01.mp4")   # 영상 파일 / 맥북 카메라로 하려면 SOURCE = 0
 LOOP_VIDEO = False     # True면 영상 끝나면 처음부터 반복 (run 기록 중에는 꺼짐)
 SHOW_WINDOW = True     # False면 창 없이 숫자만 (창을 안 띄우면 조금 더 빨라짐)
 PRINT_EVERY_SEC = 1.0  # 몇 초마다 터미널에 한 줄씩 찍을지
@@ -66,6 +68,21 @@ args = parser.parse_args()
 DEPTH_EVERY_N = max(1, args.depth_every_n if args.depth_every_n is not None else judge.DEPTH_EVERY_N)
 args.depth_every_n = DEPTH_EVERY_N   # run_meta.json의 args에 실제로 쓴 값이 들어가게
 VIDEO = 0 if args.video == "0" else args.video   # 실제로 여는 입력 (코드의 SOURCE를 고치지 않고 --video로 바꿈)
+
+
+def find_video(name):
+    """[11/13] --video로 준 이름 그대로 있으면 그것, 없으면 VIDEO_DIR에서 찾음. 확장자 생략 가능 (.mp4 .mov .MOV .MP4 순)"""
+    exts = ("", ".mp4", ".mov", ".MOV", ".MP4")
+    for base in (name, os.path.join(VIDEO_DIR, name)):
+        for ext in exts:
+            if os.path.isfile(base + ext):
+                return base + ext
+    return name   # 못 찾으면 그대로 (아래 cv2.VideoCapture에서 '입력을 열 수 없어요'로 알려줌)
+
+
+if isinstance(VIDEO, str):
+    VIDEO = find_video(VIDEO)
+    args.video = VIDEO   # run_meta.json의 args에 실제로 연 경로가 들어가게
 if isinstance(VIDEO, str) and not args.runner:
     raise SystemExit("영상 입력이면 --runner 이름 이 필요해요. 예: python run_model.py --runner 내이름 --video 1009_front_01.mp4")
 
@@ -82,7 +99,7 @@ cap = cv2.VideoCapture(VIDEO)
 if not cap.isOpened():
     raise SystemExit(
         f"입력을 열 수 없어요: {VIDEO}\n"
-        "- 영상이면 파일 이름·확장자가 정확한지 확인하세요.\n"
+        f"- 영상이면 파일 이름·확장자가 정확한지, {VIDEO_DIR} 안에 있는지 확인하세요.\n"
         "- 카메라면 시스템 설정 → 개인정보 보호 및 보안 → 카메라 권한을 확인하세요."
     )
 is_file = isinstance(VIDEO, str)
