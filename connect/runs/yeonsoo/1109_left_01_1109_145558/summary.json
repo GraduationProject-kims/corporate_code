@@ -1,0 +1,40 @@
+{
+  "trial": "1109_left_01",
+  "video_source": "file",
+  "video": "1109_left_01.mp4",
+  "frames": 232,
+  "processed": 232,
+  "frame_size": [
+    1080,
+    1440
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 7.733,
+  "frames_with_det": 87,
+  "frames_with_target": 85,
+  "label_counts": {
+    "stop sign": 89,
+    "refrigerator": 4
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 2.867,
+    "dist": 2.829,
+    "direction": "오른쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 18.9,
+  "depth_ms_median": 53.8,
+  "server_ms_median": null,
+  "wall_sec": 19.14,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 2.867,
+    "dist": 2.829,
+    "direction": "오른쪽",
+    "target_label": "stop sign"
+  }
+}

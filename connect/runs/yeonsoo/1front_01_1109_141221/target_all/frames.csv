@@ -1,0 +1,1 @@
+﻿trial,frame_idx,t_ms,det_idx,n_targets,label,conf,x1,y1,x2,y2,box_w_px,box_h_px,box_cx,box_cy,box_clipped,dist,depth_fresh,forward_m,x_left_m,x_right_m,x_center_m,top_m,bottom_m,width_m,height_m,overlap_x_m,overlap_y_m,lateral_ok,vertical_ok,in_path,in_warn_range,is_warn_target,level,level_name,direction,motor,vib_count,yolo_ms,depth_ms

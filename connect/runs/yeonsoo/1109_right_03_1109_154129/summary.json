@@ -1,0 +1,41 @@
+{
+  "trial": "1109_right_03",
+  "video_source": "file",
+  "video": "1109_right_03.mp4",
+  "frames": 185,
+  "processed": 185,
+  "frame_size": [
+    1080,
+    1440
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 6.167,
+  "frames_with_det": 97,
+  "frames_with_target": 27,
+  "label_counts": {
+    "refrigerator": 4,
+    "stop sign": 90,
+    "bus": 4
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 4.0,
+    "dist": 2.294,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.2,
+  "depth_ms_median": 54.2,
+  "server_ms_median": null,
+  "wall_sec": 17.3,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 4.0,
+    "dist": 2.294,
+    "direction": "왼쪽",
+    "target_label": "stop sign"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "trial": "1109_front_03",
+  "video_source": "file",
+  "video": "1109_front_03.mp4",
+  "frames": 188,
+  "processed": 188,
+  "frame_size": [
+    1080,
+    1440
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 6.267,
+  "frames_with_det": 146,
+  "frames_with_target": 80,
+  "label_counts": {
+    "stop sign": 146,
+    "bus": 3
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 3.5,
+    "dist": 2.999,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.1,
+  "depth_ms_median": 51.8,
+  "server_ms_median": null,
+  "wall_sec": 23.27,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 3.5,
+    "dist": 2.999,
+    "direction": "정면",
+    "target_label": "stop sign"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "trial": "1front_01",
+  "video_source": "live",
+  "video": null,
+  "target_labels": [
+    "all"
+  ],
+  "frames_total": 0,
+  "frames_detected": 0,
+  "detection_rate": null,
+  "longest_miss_frames": 0,
+  "detections": 0,
+  "frames_in_path": 0,
+  "frames_warned": 0,
+  "first_detection": null,
+  "first_in_path": null,
+  "first_warning": null,
+  "conf_median": null,
+  "conf_min_max": null,
+  "dist_median": null,
+  "dist_min_max": null,
+  "width_m_median": null,
+  "height_m_median": null,
+  "yolo_ms_median": null,
+  "depth_ms_median": null,
+  "server_ms_median": null,
+  "focal_px": null,
+  "corridor": {
+    "width_m": 0.8,
+    "bottom_m": 0.0,
+    "top_m": 1.8499999999999999,
+    "length_m": 3,
+    "camera_height_m": 1.65,
+    "camera_pitch_deg": 0.0,
+    "camera_yaw_deg": 9.0,
+    "hfov_deg": 70.0
+  },
+  "wall_sec": 54.65,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "target_schema_version": 1
+}

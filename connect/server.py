@@ -23,6 +23,11 @@ Metric Depth 모델: 절대 거리(미터) 추정.
   - 시행 기록을 시작하면 판정 상태를 처음으로 되돌림 (녹화 영상을 처음부터 트는 것과 같게)
   - 이 파일에는 폰 사진 받기·풀기, 폰 회신, 사이트 전송, 화면 창만 남음
   - 오차를 고칠 땐 이 파일이 아니라 judge.py를 고치고 서버를 다시 켤 것
+
+[3-1조 수정 11/8] 사이트 전송은 LIVE_TOKEN이 있을 때만 켜짐
+  - LIVE_TOKEN 없이 켜면 사이트 전송 없이 폰 ↔ 맥북만 연결 (전에는 토큰이 없으면 서버가 안 켜졌음)
+  - 사이트도 쓸 때: LIVE_TOKEN=연결키 RUNNER=내이름 uvicorn server:app --host 0.0.0.0 --port 8001
+  - 판정·폰 회신·frames.csv는 사이트 전송과 상관없이 똑같음
 """
 
 import asyncio
@@ -38,8 +43,11 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import cv2
 import numpy as np
 import torch
-from live_mirror import LiveMirror
-live_mirror = LiveMirror(wait_for_phone=False)
+# [3-1조 11/8] 사이트 전송: LIVE_TOKEN이 있을 때만 (없으면 None → 사이트 부분을 통째로 건너뜀)
+live_mirror = None
+if os.environ.get("LIVE_TOKEN"):
+    from live_mirror import LiveMirror
+    live_mirror = LiveMirror(wait_for_phone=False)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 import judge          # [3-1조] 처리·판정 (녹화 영상 평가와 같은 코드). 모델·판정 설정값도 여기
@@ -70,8 +78,11 @@ pipe = judge.FramePipeline(model, depth_pipe, DEVICE, DEPTH_EVERY_N, using_openv
 
 print(f"모델 로드 완료 (device={DEVICE}, openvino={using_openvino}, depth={depth_pipe is not None}). "
       f"폰 연결 대기 중...")
-print(f"[3-1조] DEPTH_EVERY_N={DEPTH_EVERY_N} (depth {DEPTH_EVERY_N}프레임마다 1번), "
-      f"사이트 판정 전송 {'켜짐' if SITE_JUDGE else '꺼짐 (켜려면 SITE_JUDGE=1)'}")
+print(f"[3-1조] DEPTH_EVERY_N={DEPTH_EVERY_N} (depth {DEPTH_EVERY_N}프레임마다 1번)")
+if live_mirror is None:
+    print("[3-1조] 사이트 전송 꺼짐 (폰 ↔ 맥북만). 사이트도 쓰려면 LIVE_TOKEN=연결키 를 붙여 실행")
+else:
+    print(f"[3-1조] 사이트 전송 켜짐, 사이트 판정 전송 {'켜짐' if SITE_JUDGE else '꺼짐 (켜려면 SITE_JUDGE=1)'}")
 
 _lock = threading.Lock()
 _latest = {"data": None, "recv_ms": 0.0}
@@ -197,6 +208,9 @@ def inference_worker():
             combined = annotated
 
         latest_view["annotated"] = combined
+
+        if live_mirror is None:   # [3-1조 11/8] LIVE_TOKEN 없음 → 사이트 전송 건너뜀 (이 아래는 사이트 전용)
+            continue
 
         # [3-1조] 사이트로는 원래 맥북 버전과 같은 형식으로 보냄
         #   - 이미지: 원래처럼 폰이 보낸 원본 크기 (판정은 640 폭에서 했으므로 다시 키움)

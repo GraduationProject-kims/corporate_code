@@ -1,0 +1,56 @@
+{
+  "trial": "1009_front_01",
+  "video_source": "file",
+  "video": "1009_front_01.mp4",
+  "target_labels": [
+    "all"
+  ],
+  "frames_total": 73,
+  "frames_detected": 42,
+  "detection_rate": 0.5753,
+  "longest_miss_frames": 15,
+  "detections": 94,
+  "frames_in_path": 0,
+  "frames_warned": 0,
+  "first_detection": {
+    "frame_idx": 0,
+    "t_sec": 0.0,
+    "dist": 4.911,
+    "x_center_m": -2.315,
+    "direction": null,
+    "motor": null
+  },
+  "first_in_path": null,
+  "first_warning": null,
+  "conf_median": 0.567,
+  "conf_min_max": [
+    0.411,
+    0.813
+  ],
+  "dist_median": 3.449,
+  "dist_min_max": [
+    2.845,
+    11.313
+  ],
+  "width_m_median": 0.855,
+  "height_m_median": 1.341,
+  "yolo_ms_median": 20.6,
+  "depth_ms_median": 56.1,
+  "server_ms_median": null,
+  "focal_px": 457.0,
+  "corridor": {
+    "width_m": 0.8,
+    "bottom_m": 0.0,
+    "top_m": 1.8499999999999999,
+    "length_m": 3,
+    "camera_height_m": 1.65,
+    "camera_pitch_deg": 0.0,
+    "camera_yaw_deg": 9.0,
+    "hfov_deg": 70.0
+  },
+  "wall_sec": 509.96,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "target_schema_version": 1
+}

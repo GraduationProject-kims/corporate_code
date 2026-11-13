@@ -1,0 +1,70 @@
+{
+  "trial": "1109_right_04",
+  "video_source": "file",
+  "video": "1109_right_04.mp4",
+  "target_labels": [
+    "all"
+  ],
+  "frames_total": 191,
+  "frames_detected": 181,
+  "detection_rate": 0.9476,
+  "longest_miss_frames": 5,
+  "detections": 189,
+  "frames_in_path": 137,
+  "frames_warned": 96,
+  "first_detection": {
+    "frame_idx": 0,
+    "t_sec": 0.0,
+    "dist": 6.156,
+    "x_center_m": 0.171,
+    "direction": null,
+    "motor": null
+  },
+  "first_in_path": {
+    "frame_idx": 0,
+    "t_sec": 0.0,
+    "dist": 6.156,
+    "x_center_m": 0.171,
+    "direction": null,
+    "motor": null
+  },
+  "first_warning": {
+    "frame_idx": 84,
+    "t_sec": 2.8,
+    "dist": 2.817,
+    "x_center_m": -0.445,
+    "direction": "왼쪽",
+    "motor": "right"
+  },
+  "conf_median": 0.897,
+  "conf_min_max": [
+    0.411,
+    0.961
+  ],
+  "dist_median": 2.826,
+  "dist_min_max": [
+    0.992,
+    10.436
+  ],
+  "width_m_median": 1.132,
+  "height_m_median": 1.161,
+  "yolo_ms_median": 16.7,
+  "depth_ms_median": 55.9,
+  "server_ms_median": null,
+  "focal_px": 457.0,
+  "corridor": {
+    "width_m": 0.8,
+    "bottom_m": 0.0,
+    "top_m": 1.8499999999999999,
+    "length_m": 3,
+    "camera_height_m": 1.65,
+    "camera_pitch_deg": 0.0,
+    "camera_yaw_deg": 9.0,
+    "hfov_deg": 70.0
+  },
+  "wall_sec": 18.47,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "target_schema_version": 1
+}

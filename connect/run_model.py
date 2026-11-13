@@ -58,6 +58,8 @@ parser.add_argument("--runner", default=None, help="실행한 사람 이름 (영
 parser.add_argument("--expected_dir", default=None, help="정답 방향")
 parser.add_argument("--gt_2m_sec", type=float, default=None, help="실제로 2m에 도달한 영상 시각(초)")
 parser.add_argument("--note", default=None)
+parser.add_argument("--save_video", action="store_true",
+                    help="[11/9] 화면에 보이는 그림(왼쪽 원본+박스+통로, 오른쪽 depth)을 run 폴더에 annotated.mp4로 저장 (영상 파일 입력일 때만)")
 parser.add_argument("--depth_every_n", type=int, default=None,
                     help=f"N프레임마다 depth 1회 (기본값: judge.py의 DEPTH_EVERY_N = {judge.DEPTH_EVERY_N})")
 args = parser.parse_args()
@@ -196,6 +198,12 @@ if is_file:
     csv_writer.writeheader()
     print(f"run 폴더: {run_dir}\n")
 
+# [11/9] --save_video: 화면 그림을 run 폴더에 annotated.mp4로 저장 (판정·frames.csv와 무관, 보기용)
+SAVE_VIDEO = bool(args.save_video and run_dir is not None)
+if args.save_video and run_dir is None:
+    print("[주의] --save_video는 영상 파일 입력일 때만 저장해요 (카메라 입력은 저장 안 함)")
+video_writer = None
+
 
 def save_row(row):
     rows.append(row)
@@ -223,7 +231,7 @@ try:
         yolo_ms, depth_ms, depth_m = out["yolo_ms"], out["depth_ms"], out["depth_m"]
         cur_W = W
         frame_idx = out["idx"] + 1
-        if SHOW_WINDOW and depth_ms is not None:   # depth를 새로 계산한 프레임만 컬러 화면 갱신
+        if (SHOW_WINDOW or SAVE_VIDEO) and depth_ms is not None:   # depth를 새로 계산한 프레임만 컬러 화면 갱신
             depth_color = judge.depth_colormap(depth_m)
         box_results, path_m, near_pt = j["box_results"], j["path_m"], j["near_pt"]
         obs_m, obs_src, obs_warn, obs_target = j["obs_m"], j["obs_src"], j["obs_warn"], j["obs_target"]
@@ -238,8 +246,8 @@ try:
             if target_rec:
                 target_rec.add(trial, t_ms, out)
 
-        # 4.5 화면 표시 (선택)
-        if SHOW_WINDOW:
+        # 4.5 화면 표시 (선택) — [11/9] 창을 안 띄워도 --save_video면 그림은 만듦
+        if SHOW_WINDOW or SAVE_VIDEO:
             # 왼쪽: 원본 + 박스, 오른쪽: depth 컬러맵, 양쪽: 경로 테두리 + 장애물 글자 + 방향 칸
             annotated = frame.copy()
             judge.draw_boxes(annotated, box_results)
@@ -255,6 +263,16 @@ try:
                 cv2.putText(right, rng, (8, H - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 4)
                 cv2.putText(right, rng, (8, H - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
+            if SAVE_VIDEO:   # [11/9] 처리한 프레임마다 한 장 (클릭 표시는 안 넣음, 일시정지 중엔 안 씀)
+                combined = np.hstack([annotated, right])
+                if video_writer is None:
+                    video_writer = cv2.VideoWriter(str(run_dir / "annotated.mp4"), cv2.VideoWriter_fourcc(*"mp4v"),
+                                                   src_fps if src_fps and src_fps > 0 else 30.0,
+                                                   (combined.shape[1], combined.shape[0]))
+                if combined.shape[:2] == (H, 2 * W):
+                    video_writer.write(combined)
+
+        if SHOW_WINDOW:
             cv2.imshow(WIN, compose(annotated, right))
             key = cv2.waitKey(1) & 0xFF
 
@@ -328,6 +346,9 @@ except KeyboardInterrupt:
 
 cap.release()
 cv2.destroyAllWindows()
+if video_writer is not None:   # [11/9]
+    video_writer.release()
+    print(f"표시 영상 저장: {run_dir / 'annotated.mp4'}")
 
 # 4.9 summary.json (q·Ctrl+C로 중간 종료해도 씀)
 if run_dir is not None:

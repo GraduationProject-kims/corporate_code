@@ -1,0 +1,32 @@
+{
+  "trial": "1009_front_01",
+  "video_source": "file",
+  "video": "1009_front_01.mp4",
+  "frames": 73,
+  "processed": 73,
+  "frame_size": [
+    1080,
+    1428
+  ],
+  "video_fps": 29.80392156862745,
+  "duration_sec": 5.1,
+  "frames_with_det": 42,
+  "frames_with_target": 0,
+  "label_counts": {
+    "tv": 17,
+    "chair": 69,
+    "dining table": 8
+  },
+  "first_level1": null,
+  "first_level2": null,
+  "first_level3": null,
+  "max_level": 0,
+  "yolo_ms_median": 19.7,
+  "depth_ms_median": 57.8,
+  "server_ms_median": null,
+  "wall_sec": 509.96,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": null
+}

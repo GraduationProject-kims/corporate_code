@@ -1,0 +1,56 @@
+{
+  "trial": "1109_front_01",
+  "video_source": "live",
+  "video": null,
+  "frames": 765,
+  "processed": 765,
+  "frame_size": [
+    360,
+    640
+  ],
+  "video_fps": 8.25,
+  "duration_sec": 92.684,
+  "frames_with_det": 716,
+  "frames_with_target": 708,
+  "label_counts": {
+    "cell phone": 61,
+    "laptop": 337,
+    "chair": 460,
+    "bottle": 153,
+    "cup": 119,
+    "person": 1159,
+    "bowl": 6,
+    "dining table": 53,
+    "tv": 55,
+    "book": 14,
+    "skateboard": 9,
+    "refrigerator": 8,
+    "stop sign": 49,
+    "couch": 1,
+    "umbrella": 4,
+    "bed": 12,
+    "banana": 1,
+    "mouse": 13
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 12.353,
+    "dist": 0.839,
+    "direction": "정면"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 17.0,
+  "depth_ms_median": 49.2,
+  "server_ms_median": 27.7,
+  "wall_sec": 92.74,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 12.353,
+    "dist": 0.839,
+    "direction": "정면",
+    "target_label": "person"
+  }
+}

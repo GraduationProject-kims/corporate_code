@@ -15,6 +15,7 @@
 | 11/2 | 클래스 모드에서 경로 판정을 화면 사각형 → **3D 통로**로. 방향도 미터 기준. 타겟 전용 결과 폴더 추가 |
 | 11/8 | 기본 타겟 suitcase → **all**(클래스 전부). 서버는 `LIVE_TOKEN` 없이도 켜짐(사이트 전송만 꺼짐). `environment.yml` websockets 16.0 |
 | 11/8 | 카메라 좌우 각도 보정 `CAMERA_YAW_DEG` 추가, 기본 **9°**(메타 안경 카메라가 걷는 방향보다 오른쪽을 봄). 화면에 1·2 m 단면 추가 |
+| 11/9 | `run_model.py --save_video`: 화면 그림을 run 폴더에 `annotated.mp4`로 저장 (보기용) |
 | 11/8 | `CAMERA_HEIGHT_M` 기본 1.55 → **1.65** (통로 천장 1.75 → 1.85 m). 화면 통로를 0.3 m부터 그리고 눈높이선·머리선 표시 |
 
 ---
@@ -84,6 +85,7 @@ LIVE_TOKEN=연결키 RUNNER=연수 uvicorn server:app --host 0.0.0.0 --port 8001
 | `--runner` | 돌린 사람 이름. 영상이면 필수 |
 | `--trial` | 시행ID. 없으면 영상 파일명에서 확장자를 뺀 것 |
 | `--expected_dir`, `--gt_2m_sec`, `--note` | 기록만 함. 계산에는 안 씀 |
+| `--save_video` | 붙이면 화면 그림(왼쪽 원본+박스+통로, 오른쪽 depth)을 run 폴더에 `annotated.mp4`로 저장. 판정과 무관. 영상 파일 입력일 때만 |
 | `--depth_every_n` | N프레임마다 depth 1번 (기본: `judge.py`의 `DEPTH_EVERY_N` = 1). **결과가 달라지니 팀 전체가 같은 값을 쓴다**. 실시간 서버는 환경변수 `DEPTH_EVERY_N` |
 
 - 시행ID 형식은 `<MMDD>_<front|left|right|none>_<2자리>`이고, 영상 파일명과 같게 한다. 예: `1108_left_01.mp4`. 형식이 다르면 경고만 하고 그대로 진행한다.
@@ -327,11 +329,12 @@ TARGET_SCHEMA_VERSION = 1             # 타겟 폴더 형식 버전
 >
 > 녹화(`run_model.py`)와 실시간(`live_record.py`)은 `judge.py`의 같은 함수(`frame_row`, `run_meta`, `summary`, `TargetRecorder`)로 저장하므로 칸 이름과 순서가 같다. 실시간에는 `latency.csv`(구간별 지연)가 하나 더 있다.
 
-폴더는 `runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/`이다 (뒤의 날짜·시각은 돌린 시각). 폴더나 파일이 이미 있으면 오류가 나고 덮어쓰지 않는다. 표시 영상은 저장하지 않는다.
+폴더는 `runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/`이다 (뒤의 날짜·시각은 돌린 시각). 폴더나 파일이 이미 있으면 오류가 나고 덮어쓰지 않는다. 표시 영상은 기본으로 저장하지 않고, `--save_video`를 주면 `annotated.mp4`(처리한 프레임마다 한 장, 원본 fps, 클릭 표시 없음)로 저장한다. 채점에는 쓰지 않는다.
 
 ```
 runs/<runner>/<시행ID>_<MMDD>_<HHMMSS>/
 ├─ run_meta.json, frames.csv, summary.json, (실시간) latency.csv   ← 전체
+├─ annotated.mp4         ← --save_video일 때만 (녹화 영상)
 └─ target_all/            ← 클래스 모드일 때만 (지정 클래스면 target_suitcase/, target_bottle_chair/ 등)
    ├─ run_meta.json
    ├─ frames.csv

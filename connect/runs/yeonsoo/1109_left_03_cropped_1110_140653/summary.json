@@ -1,0 +1,39 @@
+{
+  "trial": "1109_left_03_cropped",
+  "video_source": "file",
+  "video": "1109_left_03_cropped.mp4",
+  "frames": 205,
+  "processed": 205,
+  "frame_size": [
+    660,
+    1440
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 6.833,
+  "frames_with_det": 165,
+  "frames_with_target": 60,
+  "label_counts": {
+    "stop sign": 165
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 3.6,
+    "dist": 2.944,
+    "direction": "왼쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 19.0,
+  "depth_ms_median": 69.2,
+  "server_ms_median": null,
+  "wall_sec": 21.06,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 3.6,
+    "dist": 2.944,
+    "direction": "왼쪽",
+    "target_label": "stop sign"
+  }
+}

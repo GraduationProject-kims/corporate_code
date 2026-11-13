@@ -1,0 +1,40 @@
+{
+  "trial": "1109_left_04",
+  "video_source": "file",
+  "video": "1109_left_04.mp4",
+  "frames": 204,
+  "processed": 204,
+  "frame_size": [
+    1080,
+    1920
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 6.8,
+  "frames_with_det": 204,
+  "frames_with_target": 48,
+  "label_counts": {
+    "stop sign": 204,
+    "person": 203
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 4.1,
+    "dist": 1.392,
+    "direction": "오른쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 16.8,
+  "depth_ms_median": 56.5,
+  "server_ms_median": null,
+  "wall_sec": 40.99,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 4.1,
+    "dist": 1.392,
+    "direction": "오른쪽",
+    "target_label": "stop sign"
+  }
+}

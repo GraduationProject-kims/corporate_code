@@ -1,0 +1,39 @@
+{
+  "trial": "1109_stopsign_01",
+  "video_source": "file",
+  "video": "1109_stopsign_01.mp4",
+  "frames": 253,
+  "processed": 253,
+  "frame_size": [
+    1080,
+    1920
+  ],
+  "video_fps": 30.0,
+  "duration_sec": 8.433,
+  "frames_with_det": 253,
+  "frames_with_target": 214,
+  "label_counts": {
+    "stop sign": 253
+  },
+  "first_level1": null,
+  "first_level2": {
+    "t_sec": 0.9,
+    "dist": 1.222,
+    "direction": "오른쪽"
+  },
+  "first_level3": null,
+  "max_level": 2,
+  "yolo_ms_median": 17.6,
+  "depth_ms_median": 61.4,
+  "server_ms_median": null,
+  "wall_sec": 71.02,
+  "expected_dir": null,
+  "gt_2m_sec": null,
+  "note": null,
+  "first_vibration": {
+    "t_sec": 0.9,
+    "dist": 1.222,
+    "direction": "오른쪽",
+    "target_label": "stop sign"
+  }
+}
